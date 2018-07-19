@@ -1,0 +1,10 @@
+target
+.settings
+.project
+.classpath
+*.patch
+.idea
+*.iml
+dependency-reduced-pom.xml
+.vscode
+.polyglot.pom.*
