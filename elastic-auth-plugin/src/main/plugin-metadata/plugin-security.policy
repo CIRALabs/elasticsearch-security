@@ -1,0 +1,4 @@
+grant {
+  permission java.util.PropertyPermission "*", "read,write";
+  permission java.net.SocketPermission "127.0.0.1:389", "connect,resolve";
+};

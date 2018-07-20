@@ -14,17 +14,15 @@ import static junit.framework.TestCase.assertFalse;
 import static junit.framework.TestCase.assertTrue;
 import static org.elasticsearch.rest.RestRequest.Method.*;
 
+//FIXME These haven't been updated for LDAP
 public class BouncerTests {
 
     private static Bouncer bouncer;
 
     @BeforeClass
     public static void setup() {
-        HashMap<String, String> fauxLdap = new HashMap<>();
-        fauxLdap.put("zachary:p@ssw0rd", "7;");
-        fauxLdap.put("dev:devpassword", "6;cira-bdc-data:4;");
-        fauxLdap.put("analyst:readonly", "4;cira-bdc-proxy:6;cira-bdc-gix:0;");
-        bouncer = new Bouncer(fauxLdap);
+        //TODO Spy on bouncer's LDAP call
+        bouncer = new Bouncer();
     }
 
     @Test

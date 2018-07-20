@@ -1,0 +1,30 @@
+# OpenLDAP and phpLDAPadmin for testing purposes
+# https://stackoverflow.com/questions/51033915/trying-to-connect-gitlab-ce-docker-container-to-openldap-docker-container
+version: '2'
+
+services:
+  openldap:
+    image: osixia/openldap:latest
+    ports:
+      - "389:389"
+    environment:
+      - LDAP_ORGANISATION="lowork"
+      - LDAP_DOMAIN=localhost
+      - LDAP_ADMIN_PASSWORD=password
+    networks:
+      - loworkNetwork
+    hostname: ldap-service
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:latest
+    ports:
+      - "8080:80"
+    environment:
+      - PHPLDAPADMIN_LDAP_HOSTS=openldap
+      - PHPLDAPADMIN_HTTPS=false
+    networks:
+      - loworkNetwork
+
+networks:
+  loworkNetwork:
+    external: true
