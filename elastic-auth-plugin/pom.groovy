@@ -22,6 +22,11 @@ project {
       version '6.3.0'
       scope 'provided'
     }
+    dependency {
+      groupId 'com.unboundid'
+      artifactId 'unboundid-ldapsdk'
+      version '4.0.6'
+    }
   }
   build {
     resources {
