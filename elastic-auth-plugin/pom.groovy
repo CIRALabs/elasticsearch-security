@@ -27,6 +27,17 @@ project {
       artifactId 'unboundid-ldapsdk'
       version '4.0.6'
     }
+    dependency {
+      groupId 'com.auth0'
+      artifactId 'java-jwt'
+      version '3.4.0'
+      exclusions {
+        exclusion {
+          groupId 'com.fasterxml.jackson.core'
+          artifactId 'jackson-core'
+        }
+      }
+    }
   }
   build {
     resources {
