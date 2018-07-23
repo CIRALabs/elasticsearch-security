@@ -2,4 +2,5 @@ grant {
   permission java.util.PropertyPermission "*", "read,write";
   permission java.net.SocketPermission "127.0.0.1:389", "connect,resolve";
   permission java.lang.RuntimePermission "accessDeclaredMembers";
+  permission java.lang.reflect.ReflectPermission "suppressAccessChecks";
 };

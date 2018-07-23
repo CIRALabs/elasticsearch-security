@@ -19,12 +19,18 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
     public UnaryOperator<RestHandler> getRestHandlerWrapper(ThreadContext threadContext) {
         return originalHandler -> (RestHandler) (request, channel, client) -> {
             if (request.header("Authorization") != null) {
-                if (bouncer.requestIsAllowed(request)) {
+                Token token = bouncer.getOrValidateToken(request);
+                if (token.isSuccess()) {
+                    //TODO Make cookie expire
+                    threadContext.addResponseHeader("Set-Cookie",
+                            String.format("es_access_token=%s; HttpOnly;", token.getToken())
+                    );
                     originalHandler.handleRequest(request, channel, client);
                     return;
                 }
             }
             RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Access denied.");
+            response.addHeader("WWW-Authenticate", "Basic");
             channel.sendResponse(response);
         };
     }

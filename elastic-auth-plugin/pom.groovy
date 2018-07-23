@@ -28,9 +28,9 @@ project {
       version '4.0.6'
     }
     dependency {
-      groupId 'com.auth0'
-      artifactId 'java-jwt'
-      version '3.4.0'
+      groupId 'io.jsonwebtoken'
+      artifactId 'jjwt'
+      version '0.9.1'
       exclusions {
         exclusion {
           groupId 'com.fasterxml.jackson.core'

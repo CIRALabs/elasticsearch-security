@@ -1,11 +1,5 @@
 package ca.ciralabs;
 
-import com.auth0.jwt.JWT;
-import com.auth0.jwt.JWTVerifier;
-import com.auth0.jwt.algorithms.Algorithm;
-import com.auth0.jwt.exceptions.JWTVerificationException;
-import com.auth0.jwt.interfaces.Claim;
-import com.auth0.jwt.interfaces.DecodedJWT;
 import com.unboundid.ldap.sdk.Filter;
 import com.unboundid.ldap.sdk.LDAPConnection;
 import com.unboundid.ldap.sdk.LDAPException;
@@ -13,6 +7,11 @@ import com.unboundid.ldap.sdk.SearchRequest;
 import com.unboundid.ldap.sdk.SearchResult;
 import com.unboundid.ldap.sdk.SearchResultEntry;
 import com.unboundid.ldap.sdk.SearchScope;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.SignatureException;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.SpecialPermission;
 import org.elasticsearch.common.logging.ESLoggerFactory;
@@ -45,9 +44,12 @@ class Bouncer {
 
     private static final Charset ASCII_CHARSET = Charset.forName("US-ASCII");
     private static final String USER_CLAIM = "user";
-    private static final String ISSUER = "ciralabs";
-    private static final Algorithm ALGORITHM = Algorithm.HMAC256("KeepItSecret,KeepItSafe");
-    private static final JWTVerifier VERIFIER = JWT.require(ALGORITHM).withIssuer(ISSUER).build();
+    private static final String ACCESS_COUNT_CLAIM = "access_count";
+    private static final String ISSUER = "ciralabs.ca";
+    //TODO This should be read from config, and be a better key
+    private static final byte[] SIGNING_KEY = "supersecret".getBytes(ASCII_CHARSET);
+
+    private static final Token FAILURE_TOKEN = new Token(null, false, null);
 
     private class MalformedAuthHeaderException extends Throwable {}
     private static class Credentials {
@@ -61,18 +63,18 @@ class Bouncer {
         private boolean isBasicAuth() { return isBasicAuth; }
     }
 
-    boolean requestIsAllowed(RestRequest request) {
+    Token getOrValidateToken(RestRequest request) {
         try {
             Credentials credentials = extractCredentialsFromRequest(request);
             return credentials.isBasicAuth() ? handleBasicAuth(request, credentials.getBuffer()) : handleBearerAuth(request, credentials.getBuffer());
         }
         catch (MalformedAuthHeaderException e) {
             logger.error("RestRequest did not have valid Authorization Header!");
-            return false;
+            return null;
         }
     }
 
-    private boolean handleBasicAuth(RestRequest request, CharBuffer credentials) {
+    private Token handleBasicAuth(RestRequest request, CharBuffer credentials) {
         int endOfUsernameIndex = -1;
         for (int i = 0; i < credentials.length(); i++) {
             if (credentials.get(i) == ':') {
@@ -81,13 +83,13 @@ class Bouncer {
         }
         // Ensure that username:password was found in header
         if (endOfUsernameIndex == -1) {
-            return false;
+            return FAILURE_TOKEN;
         }
-        CharBuffer username = credentials.subSequence(0, endOfUsernameIndex);
+        String username = credentials.subSequence(0, endOfUsernameIndex).toString();
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
-        SearchResult searchResult = queryLdap(username.toString(), LDAP_ATTRIBUTES_BASIC);
+        SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
-            return false;
+            return FAILURE_TOKEN;
         }
         else {
             SearchResultEntry entry = searchResult.getSearchEntries().get(0);
@@ -97,57 +99,65 @@ class Bouncer {
                 clearBuffer(ldapPassword);
                 int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE);
                 String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
-                return handlePermission(userType, permissions, request);
+                if (handlePermission(userType, permissions, request)) {
+                    return generateJwt(username, 1);
+                }
             }
             else {
                 clearBuffer(credentials);
                 clearBuffer(ldapPassword);
-                return false;
             }
+            return FAILURE_TOKEN;
         }
     }
 
-    private String generateJwt(String username) {
+    private Token generateJwt(String username, int accessCount) {
         Calendar cal = Calendar.getInstance();
         Date now = cal.getTime();
-        cal.add(Calendar.DAY_OF_YEAR, 1);
-        Date tomorrow = cal.getTime();
+        cal.add(Calendar.HOUR_OF_DAY, 2);
+        Date expiryTime = cal.getTime();
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             sm.checkPermission(new SpecialPermission());
         }
-        return AccessController.doPrivileged((PrivilegedAction<String>) () ->
-            JWT.create()
-                .withIssuer(ISSUER)
-                .withIssuedAt(now)
-                .withExpiresAt(tomorrow)
-                .withClaim(USER_CLAIM, username)
-                .sign(ALGORITHM)
+        return AccessController.doPrivileged((PrivilegedAction<Token>) () ->
+            new Token(Jwts.builder()
+                    .setIssuer(ISSUER)
+                    .setIssuedAt(now)
+                    .setExpiration(expiryTime)
+                    .claim(USER_CLAIM, username)
+                    .claim(ACCESS_COUNT_CLAIM, accessCount)
+                    .signWith(SignatureAlgorithm.HS256, SIGNING_KEY)
+                .compact(), true, expiryTime)
         );
     }
 
-    private boolean handleBearerAuth(RestRequest request, CharBuffer credentials) {
+    private Token handleBearerAuth(RestRequest request, CharBuffer credentials) {
         try {
             SecurityManager sm = System.getSecurityManager();
             if (sm != null) {
                 sm.checkPermission(new SpecialPermission());
             }
-            DecodedJWT jwt = AccessController.doPrivileged((PrivilegedAction<DecodedJWT>) () -> VERIFIER.verify(credentials.toString()));
-            Claim userClaim = jwt.getClaim(USER_CLAIM);
-            if (userClaim != null) {
-                SearchResult searchResult = queryLdap(userClaim.asString(), LDAP_ATTRIBUTES_BEARER);
+            Jws<Claims> jwt = AccessController.doPrivileged((PrivilegedAction<Jws<Claims>>) () ->
+                    Jwts.parser().setSigningKey(SIGNING_KEY).parseClaimsJws(credentials.toString())
+            );
+            String username = (String) jwt.getBody().get(USER_CLAIM);
+            int accessCount = (Integer) jwt.getBody().get(ACCESS_COUNT_CLAIM);
+            if (username != null) {
+                SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BEARER);
                 if (searchResult != null && searchResult.getEntryCount() != 0) {
                     SearchResultEntry entry = searchResult.getSearchEntries().get(0);
                     int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE);
                     String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
-                    return handlePermission(userType, permissions, request);
+                    if (handlePermission(userType, permissions, request)) {
+                        return generateJwt(username, accessCount + 1);
+                    }
                 }
             }
-            return false;
+            return FAILURE_TOKEN;
         }
-        catch (JWTVerificationException e) {
-            logger.error("Failed to authenticate JWT token", e);
-            return false;
+        catch (SignatureException e) {
+            return FAILURE_TOKEN;
         }
     }
 
