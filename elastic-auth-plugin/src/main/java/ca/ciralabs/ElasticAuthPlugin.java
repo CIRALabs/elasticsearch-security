@@ -20,10 +20,10 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
         return originalHandler -> (RestHandler) (request, channel, client) -> {
             if (request.header("Authorization") != null) {
                 Token token = bouncer.getOrValidateToken(request);
-                if (token.isSuccess()) {
-                    //TODO Make cookie expire
+                if (token.isSuccessful()) {
                     threadContext.addResponseHeader("Set-Cookie",
-                            String.format("es_access_token=%s; HttpOnly;", token.getToken())
+                            //TODO Add "Secure;" when HTTPS is enabled
+                            String.format("es_access_token=%s; Expires=%s; HttpOnly;", token.getToken(), token.getExpiry())
                     );
                     originalHandler.handleRequest(request, channel, client);
                     return;

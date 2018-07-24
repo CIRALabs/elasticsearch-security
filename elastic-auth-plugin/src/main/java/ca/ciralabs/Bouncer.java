@@ -52,7 +52,7 @@ class Bouncer {
     private static final Token FAILURE_TOKEN = new Token(null, false, null);
 
     private class MalformedAuthHeaderException extends Throwable {}
-    private static class Credentials {
+    private class Credentials {
         private CharBuffer buffer;
         private boolean isBasicAuth;
         private Credentials(CharBuffer buffer, boolean isBasicAuth) {
@@ -76,11 +76,12 @@ class Bouncer {
 
     private Token handleBasicAuth(RestRequest request, CharBuffer credentials) {
         int endOfUsernameIndex = -1;
-        for (int i = 0; i < credentials.length(); i++) {
+        int i = 0;
+        do {
             if (credentials.get(i) == ':') {
                 endOfUsernameIndex = i;
             }
-        }
+        } while (endOfUsernameIndex == -1 && i++ < credentials.length());
         // Ensure that username:password was found in header
         if (endOfUsernameIndex == -1) {
             return FAILURE_TOKEN;
