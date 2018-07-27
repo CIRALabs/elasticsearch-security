@@ -10,6 +10,7 @@ import com.unboundid.ldap.sdk.SearchScope;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.SignatureException;
 import org.apache.logging.log4j.Logger;
@@ -52,29 +53,14 @@ class Bouncer {
     private static final Token FAILURE_TOKEN = new Token(null, false, null);
 
     private class MalformedAuthHeaderException extends Throwable {}
-    private class Credentials {
-        private CharBuffer buffer;
-        private boolean isBasicAuth;
-        private Credentials(CharBuffer buffer, boolean isBasicAuth) {
-            this.buffer = buffer;
-            this.isBasicAuth = isBasicAuth;
-        }
-        private CharBuffer getBuffer() { return buffer; }
-        private boolean isBasicAuth() { return isBasicAuth; }
-    }
 
-    Token getOrValidateToken(RestRequest request) {
+    Token handleBasicAuth(RestRequest request) {
+        CharBuffer credentials;
         try {
-            Credentials credentials = extractCredentialsFromRequest(request);
-            return credentials.isBasicAuth() ? handleBasicAuth(request, credentials.getBuffer()) : handleBearerAuth(request, credentials.getBuffer());
+            credentials = extractCredentialsFromRequest(request);
+        } catch (MalformedAuthHeaderException e) {
+            return FAILURE_TOKEN;
         }
-        catch (MalformedAuthHeaderException e) {
-            logger.error("RestRequest did not have valid Authorization Header!");
-            return null;
-        }
-    }
-
-    private Token handleBasicAuth(RestRequest request, CharBuffer credentials) {
         int endOfUsernameIndex = -1;
         int i = 0;
         do {
@@ -95,20 +81,10 @@ class Bouncer {
         else {
             SearchResultEntry entry = searchResult.getSearchEntries().get(0);
             CharBuffer ldapPassword = ASCII_CHARSET.decode(ByteBuffer.wrap(entry.getAttributeValueBytes("userpassword")));
-            if (password.equals(ldapPassword)) {
-                clearBuffer(credentials);
-                clearBuffer(ldapPassword);
-                int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE);
-                String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
-                if (handlePermission(userType, permissions, request)) {
-                    return generateJwt(username, 1);
-                }
-            }
-            else {
-                clearBuffer(credentials);
-                clearBuffer(ldapPassword);
-            }
-            return FAILURE_TOKEN;
+            boolean success = password.equals(ldapPassword);
+            clearBuffer(credentials);
+            clearBuffer(ldapPassword);
+            return success ? generateJwt(username, 1) : FAILURE_TOKEN;
         }
     }
 
@@ -133,8 +109,9 @@ class Bouncer {
         );
     }
 
-    private Token handleBearerAuth(RestRequest request, CharBuffer credentials) {
+    Token handleBearerAuth(RestRequest request) {
         try {
+            CharBuffer credentials = extractCredentialsFromRequest(request);
             SecurityManager sm = System.getSecurityManager();
             if (sm != null) {
                 sm.checkPermission(new SpecialPermission());
@@ -150,6 +127,7 @@ class Bouncer {
                     SearchResultEntry entry = searchResult.getSearchEntries().get(0);
                     int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE);
                     String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
+                    //FIXME dont need to handle permissions if not trying to access an index
                     if (handlePermission(userType, permissions, request)) {
                         return generateJwt(username, accessCount + 1);
                     }
@@ -157,7 +135,7 @@ class Bouncer {
             }
             return FAILURE_TOKEN;
         }
-        catch (SignatureException e) {
+        catch (MalformedAuthHeaderException | SignatureException | MalformedJwtException e) {
             return FAILURE_TOKEN;
         }
     }
@@ -192,17 +170,18 @@ class Bouncer {
         }
     }
 
-    private Credentials extractCredentialsFromRequest(RestRequest request) throws MalformedAuthHeaderException {
+    private CharBuffer extractCredentialsFromRequest(RestRequest request) throws MalformedAuthHeaderException {
         String authHeader = request.header("Authorization");
-        if (authHeader.contains("Basic")) {
-            return new Credentials(ASCII_CHARSET.decode(ByteBuffer.wrap(Base64.getDecoder().decode(authHeader.replaceFirst("Basic ", "")))), true);
+        if (authHeader != null) {
+            if (authHeader.contains("Basic")) {
+                /* TODO will need to hash/salt the pw to match whatever the LDAP setup is
+                 * TODO or does this happen at the browser? Probably should happen at the browser */
+                return ASCII_CHARSET.decode(ByteBuffer.wrap(Base64.getDecoder().decode(authHeader.replaceFirst("Basic ", ""))));
+            } else if (authHeader.contains("Bearer")) {
+                return CharBuffer.wrap(authHeader.replaceFirst("Bearer ", ""));
+            }
         }
-        else if (authHeader.contains("Bearer")) {
-            return new Credentials(CharBuffer.wrap(authHeader.replaceFirst("Bearer ", "")), false);
-        }
-        else {
-            throw new MalformedAuthHeaderException();
-        }
+        throw new MalformedAuthHeaderException();
     }
 
     private void clearBuffer(CharBuffer buffer) {
@@ -217,6 +196,7 @@ class Bouncer {
             sm.checkPermission(new SpecialPermission());
         }
         return AccessController.doPrivileged((PrivilegedAction<SearchResult>) () -> {
+            //TODO move to config
             try (LDAPConnection cnxn = new LDAPConnection("127.0.0.1", 389, "cn=admin,dc=localhost", "password")) {
                 Filter filter = Filter.create(String.format("(cn=%s)", username));
                 return cnxn.search(new SearchRequest("ou=users,dc=localhost", SearchScope.SUB, filter, attributes));
