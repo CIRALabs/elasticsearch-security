@@ -35,19 +35,22 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
     public UnaryOperator<RestHandler> getRestHandlerWrapper(ThreadContext threadContext) {
         return originalHandler -> (RestHandler) (request, channel, client) -> {
             // Access the Token API without restriction
-            if (request.path().equals(TOKEN_PATH)) {
+            if (request.path().endsWith(TOKEN_PATH)) {
                 originalHandler.handleRequest(request, channel, client);
                 return;
             }
-            if (request.header("Authorization") != null) {
-                Token token = bouncer.handleBearerAuth(request);
+            String authHeader = request.header("Authorization");
+            if (authHeader != null) {
+                Token token = authHeader.contains("Basic") && bouncer.isKibana(authHeader) ?
+                        bouncer.handleBasicAuth(request, true) : bouncer.handleBearerAuth(request);
                 if (token.isSuccessful()) {
+                    // TODO We want to pass these updated cookies back and forth to monitor access count
+                    // threadContext.addResponseHeader("cookie", "cookie goes here");
                     originalHandler.handleRequest(request, channel, client);
                     return;
                 }
             }
             RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Access denied.");
-//            response.addHeader("WWW-Authenticate", "Basic");
             channel.sendResponse(response);
         };
     }

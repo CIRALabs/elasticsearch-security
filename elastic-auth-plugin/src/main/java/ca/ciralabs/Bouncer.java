@@ -32,7 +32,7 @@ import static org.elasticsearch.rest.RestRequest.Method;
 class Bouncer {
 
     private static final int MASTER = 7;
-    // private static final int DEVELOPER = 6;
+    private static final int DEVELOPER = 6;
     // private static final int USER = 4;
 
     // Using these as placeholders until schema definition
@@ -45,16 +45,25 @@ class Bouncer {
 
     private static final Charset ASCII_CHARSET = Charset.forName("US-ASCII");
     private static final String USER_CLAIM = "user";
-    private static final String ACCESS_COUNT_CLAIM = "access_count";
+    //TODO All below should be read from config
     private static final String ISSUER = "ciralabs.ca";
-    //TODO This should be read from config, and be a better key
     private static final byte[] SIGNING_KEY = "supersecret".getBytes(ASCII_CHARSET);
+    private static final String KIBANA_USER = "kibana";
+    private static final CharBuffer KIBANA_PASSWORD = CharBuffer.wrap("kibana");
+    private static final String[] WHITELISTED_PATHS = {"/.kibana"};
+
+    //TODO LDAP stuff should be read from conf
+    private static final String LDAP_HOST = "127.0.0.1";
+    private static final int LDAP_PORT = 389;
+    private static final String LDAP_BIND = "cn=admin,dc=localhost";
+    private static final String LDAP_PASSWORD = "password";
+    private static final String LDAP_BASE_DN = "ou=users,dc=localhost";
 
     private static final Token FAILURE_TOKEN = new Token(null, false, null);
 
     private class MalformedAuthHeaderException extends Throwable {}
 
-    Token handleBasicAuth(RestRequest request) {
+    Token handleBasicAuth(RestRequest request, boolean isKibana) {
         CharBuffer credentials;
         try {
             credentials = extractCredentialsFromRequest(request);
@@ -74,6 +83,10 @@ class Bouncer {
         }
         String username = credentials.subSequence(0, endOfUsernameIndex).toString();
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
+        if (isKibana) {
+            // Kibana is controlled by Labs, so read the password from config, not from LDAP
+            return password.equals(KIBANA_PASSWORD) ? new Token(null, true, null) : FAILURE_TOKEN;
+        }
         SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
             return FAILURE_TOKEN;
@@ -84,11 +97,35 @@ class Bouncer {
             boolean success = password.equals(ldapPassword);
             clearBuffer(credentials);
             clearBuffer(ldapPassword);
-            return success ? generateJwt(username, 1) : FAILURE_TOKEN;
+            return success ? generateJwt(username) : FAILURE_TOKEN;
         }
     }
 
-    private Token generateJwt(String username, int accessCount) {
+    /**
+     * Kibana is the only user allowed to access all of ES via Basic auth. Verify that the credentials are from a user
+     * <i>claiming</i> to be Kibana before allowing the request for further processing.
+     */
+    boolean isKibana(String authHeader) {
+        try {
+            CharBuffer decoded = ASCII_CHARSET.decode(ByteBuffer.wrap(Base64.getDecoder().decode(authHeader.replaceFirst("Basic ", ""))));
+            int i = 0;
+            for (; i < KIBANA_USER.length(); i++) {
+                if (decoded.get(i) != KIBANA_USER.charAt(i)) {
+                    return false;
+                }
+            }
+            return decoded.get(i) == ':';
+        }
+        catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * The generated tokens aren't presently updated, in the future we want to record access counts
+     * as the tokens are passed back and forth.
+     */
+    private Token generateJwt(String username) {
         Calendar cal = Calendar.getInstance();
         Date now = cal.getTime();
         cal.add(Calendar.HOUR_OF_DAY, 2);
@@ -103,7 +140,6 @@ class Bouncer {
                     .setIssuedAt(now)
                     .setExpiration(expiryTime)
                     .claim(USER_CLAIM, username)
-                    .claim(ACCESS_COUNT_CLAIM, accessCount)
                     .signWith(SignatureAlgorithm.HS256, SIGNING_KEY)
                 .compact(), true, expiryTime)
         );
@@ -120,16 +156,16 @@ class Bouncer {
                     Jwts.parser().setSigningKey(SIGNING_KEY).parseClaimsJws(credentials.toString())
             );
             String username = (String) jwt.getBody().get(USER_CLAIM);
-            int accessCount = (Integer) jwt.getBody().get(ACCESS_COUNT_CLAIM);
             if (username != null) {
                 SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BEARER);
                 if (searchResult != null && searchResult.getEntryCount() != 0) {
                     SearchResultEntry entry = searchResult.getSearchEntries().get(0);
                     int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE);
                     String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
-                    //FIXME dont need to handle permissions if not trying to access an index
-                    if (handlePermission(userType, permissions, request)) {
-                        return generateJwt(username, accessCount + 1);
+                    if (request.param("index") == null ||
+                        handlePermission(userType, permissions, request) ||
+                        isWhitelisted(request.path(), permissions, request)) {
+                        return generateJwt(username);
                     }
                 }
             }
@@ -138,6 +174,17 @@ class Bouncer {
         catch (MalformedAuthHeaderException | SignatureException | MalformedJwtException e) {
             return FAILURE_TOKEN;
         }
+    }
+
+    private boolean isWhitelisted(String path, String[] permissions, RestRequest request) {
+        for (String goodPath : WHITELISTED_PATHS) {
+            if (path.startsWith(goodPath)) {
+                // This path is whitelisted, so enhance permissions to Dev, but still need to check special perms
+                // Developer is sufficient, because a Master will always pass the handlePermission() check
+                return handlePermission(DEVELOPER, permissions, request);
+            }
+        }
+        return false;
     }
 
     private boolean handlePermission(int userType, String[] permissions, RestRequest request) {
@@ -197,9 +244,9 @@ class Bouncer {
         }
         return AccessController.doPrivileged((PrivilegedAction<SearchResult>) () -> {
             //TODO move to config
-            try (LDAPConnection cnxn = new LDAPConnection("127.0.0.1", 389, "cn=admin,dc=localhost", "password")) {
+            try (LDAPConnection cnxn = new LDAPConnection(LDAP_HOST, LDAP_PORT, LDAP_BIND, LDAP_PASSWORD)) {
                 Filter filter = Filter.create(String.format("(cn=%s)", username));
-                return cnxn.search(new SearchRequest("ou=users,dc=localhost", SearchScope.SUB, filter, attributes));
+                return cnxn.search(new SearchRequest(LDAP_BASE_DN, SearchScope.SUB, filter, attributes));
             }
             catch (LDAPException e) {
                 logger.error("Something failed in the LDAP lookup", e);

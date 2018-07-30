@@ -34,7 +34,7 @@ public class TokenRestAction extends BaseRestHandler {
     @Override
     protected RestChannelConsumer prepareRequest(RestRequest request, NodeClient client) throws IOException {
         return channel -> {
-            Token token = bouncer.handleBasicAuth(request);
+            Token token = bouncer.handleBasicAuth(request, false);
             if (token.isSuccessful()) {
                 XContentBuilder builder = channel.newBuilder();
                 builder.startObject();
