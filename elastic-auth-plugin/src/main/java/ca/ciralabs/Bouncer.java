@@ -18,6 +18,7 @@ import org.elasticsearch.SpecialPermission;
 import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.rest.RestRequest;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
@@ -26,6 +27,7 @@ import java.security.PrivilegedAction;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Map;
 
 import static org.elasticsearch.rest.RestRequest.Method;
 
@@ -50,7 +52,8 @@ class Bouncer {
     private static final byte[] SIGNING_KEY = "supersecret".getBytes(ASCII_CHARSET);
     private static final String KIBANA_USER = "kibana";
     private static final CharBuffer KIBANA_PASSWORD = CharBuffer.wrap("kibana");
-    private static final String[] WHITELISTED_PATHS = {"/.kibana"};
+    private static final String[] WHITELISTED_PATHS = {"/.kibana", "/_msearch"};
+    private static final String INDEX = "index";
 
     //TODO LDAP stuff should be read from conf
     private static final String LDAP_HOST = "127.0.0.1";
@@ -150,6 +153,9 @@ class Bouncer {
     }
 
     Token handleBearerAuth(RestRequest request) {
+        boolean success = false;
+        String username = null;
+        int userType = 0;
         try {
             CharBuffer credentials = extractCredentialsFromRequest(request);
             SecurityManager sm = System.getSecurityManager();
@@ -159,65 +165,74 @@ class Bouncer {
             Jws<Claims> jwt = AccessController.doPrivileged((PrivilegedAction<Jws<Claims>>) () ->
                     Jwts.parser().setSigningKey(SIGNING_KEY).parseClaimsJws(credentials.toString())
             );
-            String username = (String) jwt.getBody().get(USER_CLAIM);
+            username = (String) jwt.getBody().get(USER_CLAIM);
             if (username != null) {
                 SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BEARER);
                 if (searchResult != null && searchResult.getEntryCount() != 0) {
                     SearchResultEntry entry = searchResult.getSearchEntries().get(0);
-                    int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) != null ?
+                    userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) != null ?
                             entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) :
                             // Default to user if no permissions granted
                             USER;
                     String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
-                    if (request.param("index") == null ||
-                        handlePermission(userType, permissions, request) ||
-                        isWhitelisted(request.path(), permissions, request)) {
-                        return generateJwt(username, userType);
-                    }
+                    String index = extractIndexOrNull(request);
+                    success = handlePermission(userType, permissions, index, request);
                 }
             }
-            return FAILURE_TOKEN;
         }
         catch (MalformedAuthHeaderException | SignatureException | MalformedJwtException e) {
-            return FAILURE_TOKEN;
+            logger.debug(e);
         }
+        return success ? generateJwt(username, userType) : FAILURE_TOKEN;
     }
 
-    private boolean isWhitelisted(String path, String[] permissions, RestRequest request) {
+    private String extractIndexOrNull(RestRequest request) {
+        try {
+            if (request.param(INDEX) != null) {
+                return request.param(INDEX);
+            }
+            Map<String, String> contentMap = request.contentParser().mapStrings();
+            if (contentMap.containsKey(INDEX)) {
+                return contentMap.get(INDEX);
+            }
+        } catch (IOException e) {
+            logger.error("Something went wrong parsing content", e);
+        }
+        return null;
+    }
+
+    private boolean isWhitelisted(String path) {
         for (String goodPath : WHITELISTED_PATHS) {
             if (path.startsWith(goodPath)) {
-                // This path is whitelisted, so enhance permissions to Dev, but still need to check special perms
-                // Developer is sufficient, because a Master will always pass the handlePermission() check
-                return handlePermission(DEVELOPER, permissions, request);
+                return true;
             }
         }
         return false;
     }
 
-    private boolean handlePermission(int userType, String[] permissions, RestRequest request) {
+    private boolean handlePermission(int userType, String[] permissions, String index, RestRequest request) {
         // Being a master overrides any set permissions
         if (userType != MASTER && permissions.length > 0) {
             // Special permissions are set, check them first
-            String index = request.param("index");
             for (String specialPermission : permissions) {
                 String[] indexToPerm = specialPermission.split(":");
                 if (index.startsWith(indexToPerm[0])) {
                     // This rule matches the request, so is it allowed?
-                    return evaluatePermissionOctal(request.method(), Integer.valueOf(indexToPerm[1]));
+                    return evaluatePermissionOctal(request, Integer.valueOf(indexToPerm[1]));
                 }
             }
             // If no special permission matches, fall through to user type permissions
         }
-        return evaluatePermissionOctal(request.method(), userType);
+        return evaluatePermissionOctal(request, userType);
     }
 
-    private boolean evaluatePermissionOctal(Method method, int octal) {
+    private boolean evaluatePermissionOctal(RestRequest request, int octal) {
         switch (octal) {
-            case 4:
-                return method == Method.GET || method == Method.HEAD;
-            case 6:
-                return method != Method.DELETE;
-            case 7:
+            case USER:
+                return request.method() == Method.GET || request.method() == Method.HEAD || isWhitelisted(request.path());
+            case DEVELOPER:
+                return request.method() != Method.DELETE;
+            case MASTER:
                 return true;
             default:
                 return false;
@@ -250,7 +265,6 @@ class Bouncer {
             sm.checkPermission(new SpecialPermission());
         }
         return AccessController.doPrivileged((PrivilegedAction<SearchResult>) () -> {
-            // TODO move to config
             /* FIXME This connection is not secured! All info is in plaintext
              * FIXME See creating SSL-Based connections here: https://docs.ldap.com/ldap-sdk/docs/getting-started/connections.html
              */
