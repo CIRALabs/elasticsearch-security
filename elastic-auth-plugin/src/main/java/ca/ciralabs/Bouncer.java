@@ -33,7 +33,7 @@ class Bouncer {
 
     private static final int MASTER = 7;
     private static final int DEVELOPER = 6;
-    // private static final int USER = 4;
+    private static final int USER = 4;
 
     // Using these as placeholders until schema definition
     private static final String ELASTIC_USER_TYPE_ATTRIBUTE = "destinationindicator";
@@ -59,7 +59,7 @@ class Bouncer {
     private static final String LDAP_PASSWORD = "password";
     private static final String LDAP_BASE_DN = "ou=users,dc=localhost";
 
-    private static final Token FAILURE_TOKEN = new Token(null, false, null);
+    private static final Token FAILURE_TOKEN = new Token(null, false, null, 0);
 
     private class MalformedAuthHeaderException extends Throwable {}
 
@@ -85,7 +85,7 @@ class Bouncer {
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
         if (isKibana) {
             // Kibana is controlled by Labs, so read the password from config, not from LDAP
-            return password.equals(KIBANA_PASSWORD) ? new Token(null, true, null) : FAILURE_TOKEN;
+            return password.equals(KIBANA_PASSWORD) ? new Token(null, true, null, MASTER) : FAILURE_TOKEN;
         }
         SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
@@ -97,7 +97,11 @@ class Bouncer {
             boolean success = password.equals(ldapPassword);
             clearBuffer(credentials);
             clearBuffer(ldapPassword);
-            return success ? generateJwt(username) : FAILURE_TOKEN;
+            int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) != null ?
+                    entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) :
+                    // Default to user if no permissions granted
+                    USER;
+            return success ? generateJwt(username, userType) : FAILURE_TOKEN;
         }
     }
 
@@ -125,7 +129,7 @@ class Bouncer {
      * The generated tokens aren't presently updated, in the future we want to record access counts
      * as the tokens are passed back and forth.
      */
-    private Token generateJwt(String username) {
+    private Token generateJwt(String username, int userType) {
         Calendar cal = Calendar.getInstance();
         Date now = cal.getTime();
         cal.add(Calendar.HOUR_OF_DAY, 2);
@@ -141,7 +145,7 @@ class Bouncer {
                     .setExpiration(expiryTime)
                     .claim(USER_CLAIM, username)
                     .signWith(SignatureAlgorithm.HS256, SIGNING_KEY)
-                .compact(), true, expiryTime)
+                .compact(), true, expiryTime, userType)
         );
     }
 
@@ -160,12 +164,15 @@ class Bouncer {
                 SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BEARER);
                 if (searchResult != null && searchResult.getEntryCount() != 0) {
                     SearchResultEntry entry = searchResult.getSearchEntries().get(0);
-                    int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE);
+                    int userType = entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) != null ?
+                            entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) :
+                            // Default to user if no permissions granted
+                            USER;
                     String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
                     if (request.param("index") == null ||
                         handlePermission(userType, permissions, request) ||
                         isWhitelisted(request.path(), permissions, request)) {
-                        return generateJwt(username);
+                        return generateJwt(username, userType);
                     }
                 }
             }
@@ -243,7 +250,10 @@ class Bouncer {
             sm.checkPermission(new SpecialPermission());
         }
         return AccessController.doPrivileged((PrivilegedAction<SearchResult>) () -> {
-            //TODO move to config
+            // TODO move to config
+            /* FIXME This connection is not secured! All info is in plaintext
+             * FIXME See creating SSL-Based connections here: https://docs.ldap.com/ldap-sdk/docs/getting-started/connections.html
+             */
             try (LDAPConnection cnxn = new LDAPConnection(LDAP_HOST, LDAP_PORT, LDAP_BIND, LDAP_PASSWORD)) {
                 Filter filter = Filter.create(String.format("(cn=%s)", username));
                 return cnxn.search(new SearchRequest(LDAP_BASE_DN, SearchScope.SUB, filter, attributes));

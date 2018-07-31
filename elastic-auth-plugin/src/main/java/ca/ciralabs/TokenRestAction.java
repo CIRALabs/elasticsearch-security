@@ -40,13 +40,13 @@ public class TokenRestAction extends BaseRestHandler {
                 builder.startObject();
                 builder.field("result", token.getToken());
                 builder.field("success", 1);
+                builder.field("user_type", token.getUserType());
                 builder.endObject();
                 channel.sendResponse(new BytesRestResponse(RestStatus.OK, builder));
             }
             else {
                 XContentBuilder builder = channel.newBuilder();
                 builder.startObject();
-                builder.field("result", "Failed to create token.");
                 builder.field("success", 0);
                 builder.endObject();
                 channel.sendResponse(new BytesRestResponse(RestStatus.UNAUTHORIZED, builder));
