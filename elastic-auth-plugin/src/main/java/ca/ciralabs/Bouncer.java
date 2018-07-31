@@ -195,7 +195,7 @@ class Bouncer {
             if (contentMap.containsKey(INDEX)) {
                 return contentMap.get(INDEX);
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalStateException e) {
             logger.error("Something went wrong parsing content", e);
         }
         return null;
