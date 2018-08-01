@@ -16,6 +16,7 @@ import io.jsonwebtoken.SignatureException;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.SpecialPermission;
 import org.elasticsearch.common.logging.ESLoggerFactory;
+import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.rest.RestRequest;
 
 import java.io.IOException;
@@ -29,6 +30,18 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.Map;
 
+import static ca.ciralabs.PluginSettings.ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING;
+import static ca.ciralabs.PluginSettings.ELASTIC_USER_TYPE_ATTRIBUTE_SETTING;
+import static ca.ciralabs.PluginSettings.JWT_ISSUER_SETTING;
+import static ca.ciralabs.PluginSettings.JWT_SIGNING_KEY_SETTING;
+import static ca.ciralabs.PluginSettings.KIBANA_PASSWORD_SETTING;
+import static ca.ciralabs.PluginSettings.KIBANA_USER_SETTING;
+import static ca.ciralabs.PluginSettings.LDAP_BASE_DN_SETTING;
+import static ca.ciralabs.PluginSettings.LDAP_BIND_SETTING;
+import static ca.ciralabs.PluginSettings.LDAP_HOST_SETTING;
+import static ca.ciralabs.PluginSettings.LDAP_PASSWORD_SETTING;
+import static ca.ciralabs.PluginSettings.LDAP_PORT_SETTING;
+import static ca.ciralabs.PluginSettings.WHITELISTED_PATHS_SETTING;
 import static org.elasticsearch.rest.RestRequest.Method;
 
 class Bouncer {
@@ -37,35 +50,47 @@ class Bouncer {
     private static final int DEVELOPER = 6;
     private static final int USER = 4;
 
-    // Using these as placeholders until schema definition
-    private static final String ELASTIC_USER_TYPE_ATTRIBUTE = "destinationindicator";
-    private static final String ELASTIC_INDEX_PERM_ATTRIBUTE = "description";
+    private static final String INDEX = "index";
     private static final String[] EMPTY_PERMISSIONS = new String[0];
-    private static final String[] LDAP_ATTRIBUTES_BASIC = {"userpassword", ELASTIC_USER_TYPE_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
-    private static final String[] LDAP_ATTRIBUTES_BEARER = {ELASTIC_USER_TYPE_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
+    private static final Token FAILURE_TOKEN = new Token(null, false, null, 0);
+    private static final String USER_CLAIM = "user";
+    private static final Charset ASCII_CHARSET = Charset.forName("US-ASCII");
 
     private static final Logger logger = ESLoggerFactory.getLogger(Bouncer.class);
 
-    private static final Charset ASCII_CHARSET = Charset.forName("US-ASCII");
-    private static final String USER_CLAIM = "user";
-    //TODO All below should be read from config
-    private static final String ISSUER = "ciralabs.ca";
-    private static final byte[] SIGNING_KEY = "supersecret".getBytes(ASCII_CHARSET);
-    private static final String KIBANA_USER = "kibana";
-    private static final CharBuffer KIBANA_PASSWORD = CharBuffer.wrap("kibana");
-    private static final String[] WHITELISTED_PATHS = {"/.kibana", "/_msearch"};
-    private static final String INDEX = "index";
-
-    //TODO LDAP stuff should be read from conf
-    private static final String LDAP_HOST = "127.0.0.1";
-    private static final int LDAP_PORT = 389;
-    private static final String LDAP_BIND = "cn=admin,dc=localhost";
-    private static final String LDAP_PASSWORD = "password";
-    private static final String LDAP_BASE_DN = "ou=users,dc=localhost";
-
-    private static final Token FAILURE_TOKEN = new Token(null, false, null, 0);
+    private final String ELASTIC_USER_TYPE_ATTRIBUTE;
+    private final String ELASTIC_INDEX_PERM_ATTRIBUTE;
+    private final String ISSUER;
+    private final byte[] SIGNING_KEY;
+    private final String KIBANA_USER;
+    private final CharBuffer KIBANA_PASSWORD;
+    private final String[] WHITELISTED_PATHS;
+    private final String LDAP_HOST;
+    private final int LDAP_PORT;
+    private final String LDAP_BIND;
+    private final String LDAP_PASSWORD;
+    private final String LDAP_BASE_DN;
+    private final String[] LDAP_ATTRIBUTES_BASIC;
+    private final String[] LDAP_ATTRIBUTES_BEARER;
 
     private class MalformedAuthHeaderException extends Throwable {}
+
+    Bouncer(Settings settings) {
+        ELASTIC_USER_TYPE_ATTRIBUTE = ELASTIC_USER_TYPE_ATTRIBUTE_SETTING.get(settings);
+        ELASTIC_INDEX_PERM_ATTRIBUTE = ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING.get(settings);
+        KIBANA_USER = KIBANA_USER_SETTING.get(settings);
+        KIBANA_PASSWORD = CharBuffer.wrap(KIBANA_PASSWORD_SETTING.get(settings));
+        WHITELISTED_PATHS = WHITELISTED_PATHS_SETTING.get(settings).toArray(new String[0]);
+        ISSUER = JWT_ISSUER_SETTING.get(settings);
+        SIGNING_KEY = JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET);
+        LDAP_HOST = LDAP_HOST_SETTING.get(settings);
+        LDAP_PORT = LDAP_PORT_SETTING.get(settings);
+        LDAP_BIND = LDAP_BIND_SETTING.get(settings);
+        LDAP_PASSWORD = LDAP_PASSWORD_SETTING.get(settings);
+        LDAP_BASE_DN = LDAP_BASE_DN_SETTING.get(settings);
+        LDAP_ATTRIBUTES_BASIC = new String[] {"userpassword", ELASTIC_USER_TYPE_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
+        LDAP_ATTRIBUTES_BEARER = new String[] {ELASTIC_USER_TYPE_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
+    }
 
     Token handleBasicAuth(RestRequest request, boolean isKibana) {
         CharBuffer credentials;

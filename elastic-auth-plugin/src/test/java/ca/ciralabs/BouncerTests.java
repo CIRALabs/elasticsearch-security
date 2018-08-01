@@ -22,7 +22,7 @@ public class BouncerTests {
     @BeforeClass
     public static void setup() {
         //TODO Spy on bouncer's LDAP call
-        bouncer = new Bouncer();
+        bouncer = new Bouncer(null);
     }
 
     @Test

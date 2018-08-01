@@ -4,6 +4,7 @@ import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.IndexScopedSettings;
+import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.settings.SettingsFilter;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
@@ -25,11 +26,14 @@ import static ca.ciralabs.TokenRestAction.TOKEN_PATH;
 public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
 
     /** He checks your ID! <i>*cymbal crash*</i> */
-    static Bouncer bouncer = new Bouncer();
+    static Bouncer bouncer;
 
     @Override
     public UnaryOperator<RestHandler> getRestHandlerWrapper(ThreadContext threadContext) {
         return originalHandler -> (RestHandler) (request, channel, client) -> {
+            if (bouncer == null) {
+                bouncer = new Bouncer(client.settings());
+            }
             // Access the Token API without restriction
             if (request.path().endsWith(TOKEN_PATH)) {
                 originalHandler.handleRequest(request, channel, client);
@@ -49,6 +53,11 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
             RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Access denied.");
             channel.sendResponse(response);
         };
+    }
+
+    @Override
+    public List<Setting<?>> getSettings() {
+        return PluginSettings.getSettings();
     }
 
     @Override
