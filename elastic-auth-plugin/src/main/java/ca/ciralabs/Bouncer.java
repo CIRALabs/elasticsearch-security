@@ -40,6 +40,7 @@ class Bouncer {
     // Using these as placeholders until schema definition
     private static final String ELASTIC_USER_TYPE_ATTRIBUTE = "destinationindicator";
     private static final String ELASTIC_INDEX_PERM_ATTRIBUTE = "description";
+    private static final String[] EMPTY_PERMISSIONS = new String[0];
     private static final String[] LDAP_ATTRIBUTES_BASIC = {"userpassword", ELASTIC_USER_TYPE_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
     private static final String[] LDAP_ATTRIBUTES_BEARER = {ELASTIC_USER_TYPE_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
 
@@ -174,7 +175,9 @@ class Bouncer {
                             entry.getAttributeValueAsInteger(ELASTIC_USER_TYPE_ATTRIBUTE) :
                             // Default to user if no permissions granted
                             USER;
-                    String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE);
+                    String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) != null ?
+                            entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) :
+                            EMPTY_PERMISSIONS;
                     String index = extractIndexOrNull(request);
                     success = handlePermission(userType, permissions, index, request);
                 }

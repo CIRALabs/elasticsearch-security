@@ -1,9 +1,7 @@
 package ca.ciralabs;
 
-import org.apache.logging.log4j.Logger;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
-import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.IndexScopedSettings;
 import org.elasticsearch.common.settings.Settings;
@@ -26,9 +24,7 @@ import static ca.ciralabs.TokenRestAction.TOKEN_PATH;
 
 public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
 
-    private static final Logger logger = ESLoggerFactory.getLogger(ElasticAuthPlugin.class);
-
-    /** He checks your ID! *cymbal crash* */
+    /** He checks your ID! <i>*cymbal crash*</i> */
     static Bouncer bouncer = new Bouncer();
 
     @Override
