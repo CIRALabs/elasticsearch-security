@@ -219,12 +219,18 @@ class Bouncer {
             if (request.param(INDEX) != null) {
                 return request.param(INDEX);
             }
-            Map<String, String> contentMap = request.contentParser().mapStrings();
-            if (contentMap.containsKey(INDEX)) {
-                return contentMap.get(INDEX);
+            if (request.hasContent()) {
+                Map<String, String> contentMap = request.contentParser().mapStrings();
+                if (contentMap.containsKey(INDEX)) {
+                    return contentMap.get(INDEX);
+                }
             }
-        } catch (IOException | IllegalStateException e) {
+        } catch (IOException e) {
             logger.error("Something went wrong parsing content", e);
+        } catch (IllegalStateException e) {
+            // This exception is annoying, but not fatal
+            logger.debug("Something went wrong parsing content", e);
+            logger.debug("Content: " + request.content().utf8ToString(), e);
         }
         return null;
     }
