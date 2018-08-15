@@ -13,6 +13,9 @@
         <file>
             <source>${project.basedir}/src/main/plugin-metadata/plugin-security.policy</source>
         </file>
+        <file>
+            <source>${project.basedir}/src/main/plugin-metadata/bundle.crt</source>
+        </file>
     </files>
     <dependencySets>
         <dependencySet>

@@ -12,14 +12,18 @@ class PluginSettings {
             Setting.simpleString("elastic-auth-plugin.ldap.host", Setting.Property.NodeScope);
     static final Setting<Integer> LDAP_PORT_SETTING =
             Setting.intSetting("elastic-auth-plugin.ldap.port", 389, 0, 65535, Setting.Property.NodeScope);
-    static final Setting<String> LDAP_BIND_SETTING =
-            Setting.simpleString("elastic-auth-plugin.ldap.bind", Setting.Property.NodeScope);
-    static final Setting<String> LDAP_PASSWORD_SETTING =
-            Setting.simpleString("elastic-auth-plugin.ldap.password", Setting.Property.NodeScope);
     static final Setting<String> LDAP_BASE_DN_SETTING =
             Setting.simpleString("elastic-auth-plugin.ldap.base-dn", Setting.Property.NodeScope);
-    static final Setting<String> ELASTIC_USER_TYPE_ATTRIBUTE_SETTING =
-            Setting.simpleString("elastic-auth-plugin.ldap.attribute.user-type", Setting.Property.NodeScope);
+    static final Setting<String> LDAP_ELK_GROUPS_CN_SETTING =
+            Setting.simpleString("elastic-auth-plugin.ldap.elk-groups-cn", Setting.Property.NodeScope);
+    static final Setting<String> LDAP_ELK_GROUPS_MASTERS_CN_SETTING =
+            Setting.simpleString("elastic-auth-plugin.ldap.elk-groups-masters-cn", Setting.Property.NodeScope);
+    static final Setting<String> LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING =
+            Setting.simpleString("elastic-auth-plugin.ldap.elk-groups-developers-cn", Setting.Property.NodeScope);
+    static final Setting<String> LDAP_ELK_GROUPS_USERS_CN_SETTING =
+            Setting.simpleString("elastic-auth-plugin.ldap.elk-groups-users-cn", Setting.Property.NodeScope);
+    static final Setting<String> LDAP_GROUP_BASE_DN_SETTING =
+            Setting.simpleString("elastic-auth-plugin.ldap.group-base-dn", Setting.Property.NodeScope);
     static final Setting<String> ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING =
             Setting.simpleString("elastic-auth-plugin.ldap.attribute.index-perm", Setting.Property.NodeScope);
     static final Setting<String> JWT_ISSUER_SETTING =
@@ -35,9 +39,10 @@ class PluginSettings {
 
     static List<Setting<?>> getSettings() {
         return Arrays.asList(
-                LDAP_HOST_SETTING, LDAP_PORT_SETTING, LDAP_BIND_SETTING, LDAP_PASSWORD_SETTING, LDAP_BASE_DN_SETTING,
-                ELASTIC_USER_TYPE_ATTRIBUTE_SETTING, ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING, JWT_ISSUER_SETTING,
-                JWT_SIGNING_KEY_SETTING, ADMIN_USER_SETTING, ADMIN_PASSWORD_SETTING, WHITELISTED_PATHS_SETTING
+                LDAP_HOST_SETTING, LDAP_PORT_SETTING, LDAP_BASE_DN_SETTING, LDAP_ELK_GROUPS_CN_SETTING,
+                LDAP_ELK_GROUPS_MASTERS_CN_SETTING, LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING,
+                 LDAP_ELK_GROUPS_USERS_CN_SETTING, LDAP_GROUP_BASE_DN_SETTING, ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING,
+                JWT_ISSUER_SETTING, JWT_SIGNING_KEY_SETTING, ADMIN_USER_SETTING, ADMIN_PASSWORD_SETTING, WHITELISTED_PATHS_SETTING
         );
     }
 
