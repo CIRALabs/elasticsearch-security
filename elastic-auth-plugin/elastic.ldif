@@ -1,0 +1,11 @@
+# AUTO-GENERATED FILE - DO NOT EDIT!! Use ldapmodify.
+# CRC32 8ba38cb5
+dn: cn=elastic,cn=schema,cn=config
+objectClass: olcSchemaConfig
+cn: elastic
+olcAttributeTypes: {0}( 1.3.6.1.4.1.51357.9200 NAME 'esIndexPermission' DE
+ SC 'Specific permission for an ES index -> indexname:7' EQUALITY caseIgnore
+ Match SUBSTR caseIgnoreSubstringsMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+  )
+olcObjectClasses: {0}( 1.3.6.1.4.1.51357.9201 NAME 'esUser' DESC 'User of El
+ asticsearch' SUP top AUXILIARY MAY esIndexPermission )
