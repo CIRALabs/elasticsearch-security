@@ -26,10 +26,10 @@ class PluginSettings {
             Setting.simpleString("elastic-auth-plugin.jwt.issuer", Setting.Property.NodeScope);
     static final Setting<String> JWT_SIGNING_KEY_SETTING =
             Setting.simpleString("elastic-auth-plugin.jwt.signing-key", Setting.Property.NodeScope);
-    static final Setting<String> KIBANA_USER_SETTING =
-            Setting.simpleString("elastic-auth-plugin.kibana.user", Setting.Property.NodeScope);
-    static final Setting<String> KIBANA_PASSWORD_SETTING =
-            Setting.simpleString("elastic-auth-plugin.kibana.password", Setting.Property.NodeScope);
+    static final Setting<String> ADMIN_USER_SETTING =
+            Setting.simpleString("elastic-auth-plugin.admin.user", Setting.Property.NodeScope);
+    static final Setting<String> ADMIN_PASSWORD_SETTING =
+            Setting.simpleString("elastic-auth-plugin.admin.password", Setting.Property.NodeScope);
     static final Setting<List<String>> WHITELISTED_PATHS_SETTING =
             Setting.listSetting("elastic-auth-plugin.perm.whitelisted", Collections.emptyList(), s -> s, Setting.Property.NodeScope);
 
@@ -37,7 +37,7 @@ class PluginSettings {
         return Arrays.asList(
                 LDAP_HOST_SETTING, LDAP_PORT_SETTING, LDAP_BIND_SETTING, LDAP_PASSWORD_SETTING, LDAP_BASE_DN_SETTING,
                 ELASTIC_USER_TYPE_ATTRIBUTE_SETTING, ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING, JWT_ISSUER_SETTING,
-                JWT_SIGNING_KEY_SETTING, KIBANA_USER_SETTING, KIBANA_PASSWORD_SETTING, WHITELISTED_PATHS_SETTING
+                JWT_SIGNING_KEY_SETTING, ADMIN_USER_SETTING, ADMIN_PASSWORD_SETTING, WHITELISTED_PATHS_SETTING
         );
     }
 

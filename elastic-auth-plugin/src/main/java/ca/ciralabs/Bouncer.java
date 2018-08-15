@@ -34,8 +34,8 @@ import static ca.ciralabs.PluginSettings.ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING;
 import static ca.ciralabs.PluginSettings.ELASTIC_USER_TYPE_ATTRIBUTE_SETTING;
 import static ca.ciralabs.PluginSettings.JWT_ISSUER_SETTING;
 import static ca.ciralabs.PluginSettings.JWT_SIGNING_KEY_SETTING;
-import static ca.ciralabs.PluginSettings.KIBANA_PASSWORD_SETTING;
-import static ca.ciralabs.PluginSettings.KIBANA_USER_SETTING;
+import static ca.ciralabs.PluginSettings.ADMIN_PASSWORD_SETTING;
+import static ca.ciralabs.PluginSettings.ADMIN_USER_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_BASE_DN_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_BIND_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_HOST_SETTING;
@@ -62,8 +62,8 @@ class Bouncer {
     private final String ELASTIC_INDEX_PERM_ATTRIBUTE;
     private final String ISSUER;
     private final byte[] SIGNING_KEY;
-    private final String KIBANA_USER;
-    private final CharBuffer KIBANA_PASSWORD;
+    private final String ADMIN_USER;
+    private final CharBuffer ADMIN_PASSWORD;
     private final String[] WHITELISTED_PATHS;
     private final String LDAP_HOST;
     private final int LDAP_PORT;
@@ -78,8 +78,8 @@ class Bouncer {
     Bouncer(Settings settings) {
         ELASTIC_USER_TYPE_ATTRIBUTE = ELASTIC_USER_TYPE_ATTRIBUTE_SETTING.get(settings);
         ELASTIC_INDEX_PERM_ATTRIBUTE = ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING.get(settings);
-        KIBANA_USER = KIBANA_USER_SETTING.get(settings);
-        KIBANA_PASSWORD = CharBuffer.wrap(KIBANA_PASSWORD_SETTING.get(settings));
+        ADMIN_USER = ADMIN_USER_SETTING.get(settings);
+        ADMIN_PASSWORD = CharBuffer.wrap(ADMIN_PASSWORD_SETTING.get(settings));
         WHITELISTED_PATHS = WHITELISTED_PATHS_SETTING.get(settings).toArray(new String[0]);
         ISSUER = JWT_ISSUER_SETTING.get(settings);
         SIGNING_KEY = JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET);
@@ -92,7 +92,7 @@ class Bouncer {
         LDAP_ATTRIBUTES_BEARER = new String[] {ELASTIC_USER_TYPE_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
     }
 
-    Token handleBasicAuth(RestRequest request, boolean isKibana) {
+    Token handleBasicAuth(RestRequest request, boolean isAdminUser) {
         CharBuffer credentials;
         try {
             credentials = extractCredentialsFromRequest(request);
@@ -112,9 +112,9 @@ class Bouncer {
         }
         String username = credentials.subSequence(0, endOfUsernameIndex).toString();
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
-        if (isKibana) {
-            // Kibana is controlled by Labs, so read the password from config, not from LDAP
-            return password.equals(KIBANA_PASSWORD) ? new Token(null, true, null, MASTER) : FAILURE_TOKEN;
+        if (isAdminUser) {
+            // Admin is controlled by yml, so read the password from config, not from LDAP
+            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, null, MASTER) : FAILURE_TOKEN;
         }
         SearchResult searchResult = queryLdap(username, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
@@ -135,15 +135,16 @@ class Bouncer {
     }
 
     /**
-     * Kibana is the only user allowed to access all of ES via Basic auth. Verify that the credentials are from a user
-     * <i>claiming</i> to be Kibana before allowing the request for further processing.
+     * An admin user, which is configured in kibana.yml and logstash.yml are the only ones allowed to access all of ES
+     * via Basic auth. Verify that the credentials are from a user <i>claiming</i> to be an admin before allowing
+     * the request for further processing.
      */
-    boolean isKibana(String authHeader) {
+    boolean isAdminUser(String authHeader) {
         try {
             CharBuffer decoded = ASCII_CHARSET.decode(ByteBuffer.wrap(Base64.getDecoder().decode(authHeader.replaceFirst("Basic ", ""))));
             int i = 0;
-            for (; i < KIBANA_USER.length(); i++) {
-                if (decoded.get(i) != KIBANA_USER.charAt(i)) {
+            for (; i < ADMIN_USER.length(); i++) {
+                if (decoded.get(i) != ADMIN_USER.charAt(i)) {
                     return false;
                 }
             }

@@ -41,7 +41,7 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
             }
             String authHeader = request.header("Authorization");
             if (authHeader != null) {
-                Token token = authHeader.contains("Basic") && bouncer.isKibana(authHeader) ?
+                Token token = authHeader.contains("Basic") && bouncer.isAdminUser(authHeader) ?
                         bouncer.handleBasicAuth(request, true) : bouncer.handleBearerAuth(request);
                 if (token.isSuccessful()) {
                     // TODO We want to pass these updated cookies back and forth to monitor access count
