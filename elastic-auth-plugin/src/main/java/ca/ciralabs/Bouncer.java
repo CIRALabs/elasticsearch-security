@@ -213,7 +213,7 @@ class Bouncer {
     }
 
     /**
-     * An admin user, which is configured in kibana.yml and logstash.yml are the only ones allowed to access all of ES
+     * An admin user, which is configured in kibana.yml and logstash.yml, is the only user allowed to access all of ES
      * via Basic auth. Verify that the credentials are from a user <i>claiming</i> to be an admin before allowing
      * the request for further processing.
      */
