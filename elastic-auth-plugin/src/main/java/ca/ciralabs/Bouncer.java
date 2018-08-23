@@ -43,7 +43,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static ca.ciralabs.PluginSettings.ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING;
 import static ca.ciralabs.PluginSettings.JWT_ISSUER_SETTING;
@@ -59,6 +59,7 @@ import static ca.ciralabs.PluginSettings.LDAP_GROUP_BASE_DN_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_HOST_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_PORT_SETTING;
 import static ca.ciralabs.PluginSettings.WHITELISTED_PATHS_SETTING;
+import static java.util.stream.Collectors.toList;
 import static org.elasticsearch.rest.RestRequest.Method;
 
 class Bouncer {
@@ -74,7 +75,7 @@ class Bouncer {
     private static final Charset ASCII_CHARSET = StandardCharsets.US_ASCII;
     private static final String UNIQUE_MEMBER_ATTRIBUTE = "uniqueMember";
     private static final String USER_PASSWORD_ATTRIBUTE = "userPassword";
-    // {SSHA}... so start at index 6
+    /** {SSHA}... so start at index 6 */
     private static final int HASHED_INDEX_START = 6;
     private static final int SHA1_LENGTH = 20;
 
@@ -85,7 +86,8 @@ class Bouncer {
     private final byte[] SIGNING_KEY;
     private final String ADMIN_USER;
     private final CharBuffer ADMIN_PASSWORD;
-    private final String[] WHITELISTED_PATHS;
+    /** These are POST endpoints which are "safe" (read-only) for regular users. */
+    private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget").collect(toList());
     private final String LDAP_HOST;
     private final int LDAP_PORT;
     private final String LDAP_BASE_DN;
@@ -102,7 +104,7 @@ class Bouncer {
         ELASTIC_INDEX_PERM_ATTRIBUTE = ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING.get(settings);
         ADMIN_USER = ADMIN_USER_SETTING.get(settings);
         ADMIN_PASSWORD = CharBuffer.wrap(ADMIN_PASSWORD_SETTING.get(settings));
-        WHITELISTED_PATHS = WHITELISTED_PATHS_SETTING.get(settings).toArray(new String[0]);
+        WHITELISTED_PATHS.addAll(WHITELISTED_PATHS_SETTING.get(settings));
         ISSUER = JWT_ISSUER_SETTING.get(settings);
         SIGNING_KEY = JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET);
         LDAP_HOST = LDAP_HOST_SETTING.get(settings);
@@ -313,7 +315,7 @@ class Bouncer {
 
     private boolean isWhitelisted(String path) {
         for (String goodPath : WHITELISTED_PATHS) {
-            if (path.startsWith(goodPath)) {
+            if (path.endsWith(goodPath)) {
                 return true;
             }
         }
@@ -322,7 +324,7 @@ class Bouncer {
 
     private boolean handlePermission(int userType, String[] permissions, String index, RestRequest request) {
         // Being a master overrides any set permissions
-        if (userType != MASTER && permissions.length > 0) {
+        if (index != null && userType != MASTER && permissions.length > 0) {
             // Special permissions are set, check them first
             for (String specialPermission : permissions) {
                 String[] indexToPerm = specialPermission.split(":");
@@ -392,7 +394,7 @@ class Bouncer {
             for (SearchResultEntry entry : sr.getSearchEntries()) {
                 List<String> usernames = Arrays.stream(entry.getAttributeValues(UNIQUE_MEMBER_ATTRIBUTE))
                         .map(s -> s.substring(s.indexOf('=') + 1, s.indexOf(',')))
-                        .collect(Collectors.toList());
+                        .collect(toList());
                 for (String un : usernames) {
                     if (username.equals(un)) {
                         String groupname = entry.getDN();
