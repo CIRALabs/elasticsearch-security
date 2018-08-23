@@ -19,7 +19,4 @@ elastic-auth-plugin:
     admin:
         user: adminuser
         password: adminpassword
-    perm.whitelisted:
-      - /.kibana
-      - /_msearch
 ```
