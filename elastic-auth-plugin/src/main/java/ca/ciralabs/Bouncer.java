@@ -87,7 +87,9 @@ class Bouncer {
     private final String ADMIN_USER;
     private final CharBuffer ADMIN_PASSWORD;
     /** These are POST endpoints which are "safe" (read-only) for regular users. */
-    private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget").collect(toList());
+    private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
+                                                             "/_search/scroll", "/_search/scroll/_all", "/.kibana"
+                                                            ).collect(toList());
     private final String LDAP_HOST;
     private final int LDAP_PORT;
     private final String LDAP_BASE_DN;
@@ -315,7 +317,7 @@ class Bouncer {
 
     private boolean isWhitelisted(String path) {
         for (String goodPath : WHITELISTED_PATHS) {
-            if (path.endsWith(goodPath)) {
+            if (path.contains(goodPath)) {
                 return true;
             }
         }
