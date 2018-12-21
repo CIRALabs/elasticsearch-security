@@ -14,9 +14,9 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.SignatureException;
+import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.SpecialPermission;
-import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.rest.RestRequest;
 
@@ -79,7 +79,7 @@ class Bouncer {
     private static final int HASHED_INDEX_START = 6;
     private static final int SHA1_LENGTH = 20;
 
-    private static final Logger logger = ESLoggerFactory.getLogger(Bouncer.class);
+    private static final Logger logger = LogManager.getLogger(Bouncer.class);
 
     private final String ELASTIC_INDEX_PERM_ATTRIBUTE;
     private final String ISSUER;
