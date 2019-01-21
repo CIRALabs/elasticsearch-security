@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import static ca.ciralabs.PluginSettings.ADMIN_GRAFANA_SETTING;
 import static ca.ciralabs.PluginSettings.ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING;
 import static ca.ciralabs.PluginSettings.JWT_ISSUER_SETTING;
 import static ca.ciralabs.PluginSettings.JWT_SIGNING_KEY_SETTING;
@@ -86,6 +87,7 @@ class Bouncer {
     private final byte[] SIGNING_KEY;
     private final String ADMIN_USER;
     private final CharBuffer ADMIN_PASSWORD;
+    private final String ADMIN_GRAFANA;
     /** These are POST endpoints which are "safe" (read-only) for regular users. */
     private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
                                                              "/_search/scroll", "/_search/scroll/_all", "/.kibana",
@@ -107,6 +109,7 @@ class Bouncer {
         ELASTIC_INDEX_PERM_ATTRIBUTE = ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING.get(settings);
         ADMIN_USER = ADMIN_USER_SETTING.get(settings);
         ADMIN_PASSWORD = CharBuffer.wrap(ADMIN_PASSWORD_SETTING.get(settings));
+        ADMIN_GRAFANA = ADMIN_GRAFANA_SETTING.get(settings);
         WHITELISTED_PATHS.addAll(WHITELISTED_PATHS_SETTING.get(settings));
         ISSUER = JWT_ISSUER_SETTING.get(settings);
         SIGNING_KEY = JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET);
@@ -221,20 +224,30 @@ class Bouncer {
      * An admin user, which is configured in kibana.yml and logstash.yml, is the only user allowed to access all of ES
      * via Basic auth. Verify that the credentials are from a user <i>claiming</i> to be an admin before allowing
      * the request for further processing.
+     *
+     * In addition, users that begin with <code>grafana.</code> are also allowed to use basic auth, but with
+     * read-only access.
      */
-    boolean isAdminUser(String authHeader) {
+    int isAllowedBasicAuth(String authHeader) {
         try {
-            CharBuffer decoded = ASCII_CHARSET.decode(ByteBuffer.wrap(Base64.getDecoder().decode(authHeader.replaceFirst("Basic ", ""))));
-            int i = 0;
-            for (; i < ADMIN_USER.length(); i++) {
-                if (decoded.get(i) != ADMIN_USER.charAt(i)) {
-                    return false;
-                }
+            // It's already a string when Elasticsearch gives us the headers, so... ¯\_(ツ)_/¯
+            String decoded =
+                    ASCII_CHARSET.decode(ByteBuffer.wrap(Base64.getDecoder().decode(
+                            authHeader.replaceFirst("Basic ", "")
+                    ))).toString();
+            String username = decoded.substring(0, decoded.lastIndexOf(':'));
+            if (username.equals(ADMIN_USER)) {
+                return 1;
             }
-            return decoded.get(i) == ':';
+            else if (username.startsWith(ADMIN_GRAFANA)) {
+                return 2;
+            }
+            else {
+                return 0;
+            }
         }
         catch (Exception e) {
-            return false;
+            return 0;
         }
     }
 

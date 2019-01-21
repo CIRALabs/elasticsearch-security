@@ -41,8 +41,9 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
             }
             String authHeader = request.header("Authorization");
             if (authHeader != null) {
-                Token token = authHeader.contains("Basic") && bouncer.isAdminUser(authHeader) ?
-                        bouncer.handleBasicAuth(request, true) : bouncer.handleBearerAuth(request);
+                int isAllowedBasicAuth = authHeader.contains("Basic") ? bouncer.isAllowedBasicAuth(authHeader) : 0;
+                Token token = isAllowedBasicAuth > 0 ?
+                        bouncer.handleBasicAuth(request, isAllowedBasicAuth == 1) : bouncer.handleBearerAuth(request);
                 if (token.isSuccessful()) {
                     // TODO We want to pass these updated cookies back and forth to monitor access count
                     // threadContext.addResponseHeader("cookie", "cookie goes here");

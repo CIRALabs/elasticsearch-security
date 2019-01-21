@@ -19,4 +19,5 @@ elastic-auth-plugin:
     admin:
         user: adminuser
         password: adminpassword
+        grafana: grafana.
 ```
