@@ -19,5 +19,5 @@ elastic-auth-plugin:
     admin:
         user: adminuser
         password: adminpassword
-        grafana: grafana.
+        basic-auth: _service.elasticsearch
 ```

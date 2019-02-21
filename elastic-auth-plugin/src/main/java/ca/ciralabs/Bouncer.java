@@ -45,7 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-import static ca.ciralabs.PluginSettings.ADMIN_GRAFANA_SETTING;
+import static ca.ciralabs.PluginSettings.ADMIN_BASIC_AUTH_SETTING;
 import static ca.ciralabs.PluginSettings.ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING;
 import static ca.ciralabs.PluginSettings.JWT_ISSUER_SETTING;
 import static ca.ciralabs.PluginSettings.JWT_SIGNING_KEY_SETTING;
@@ -87,7 +87,7 @@ class Bouncer {
     private final byte[] SIGNING_KEY;
     private final String ADMIN_USER;
     private final CharBuffer ADMIN_PASSWORD;
-    private final String ADMIN_GRAFANA;
+    private final String ADMIN_BASIC_AUTH;
     /** These are POST endpoints which are "safe" (read-only) for regular users. */
     private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
                                                              "/_search/scroll", "/_search/scroll/_all", "/.kibana",
@@ -109,7 +109,7 @@ class Bouncer {
         ELASTIC_INDEX_PERM_ATTRIBUTE = ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING.get(settings);
         ADMIN_USER = ADMIN_USER_SETTING.get(settings);
         ADMIN_PASSWORD = CharBuffer.wrap(ADMIN_PASSWORD_SETTING.get(settings));
-        ADMIN_GRAFANA = ADMIN_GRAFANA_SETTING.get(settings);
+        ADMIN_BASIC_AUTH = ADMIN_BASIC_AUTH_SETTING.get(settings);
         WHITELISTED_PATHS.addAll(WHITELISTED_PATHS_SETTING.get(settings));
         ISSUER = JWT_ISSUER_SETTING.get(settings);
         SIGNING_KEY = JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET);
@@ -225,8 +225,8 @@ class Bouncer {
      * via Basic auth. Verify that the credentials are from a user <i>claiming</i> to be an admin before allowing
      * the request for further processing.
      *
-     * In addition, users that begin with <code>grafana.</code> are also allowed to use basic auth, but with
-     * read-only access.
+     * In addition, users that begin with <code>_service.elasticsearch</code> are also allowed to use basic auth, but with
+     * access defined by their LDAP attributes.
      */
     int isAllowedBasicAuth(String authHeader) {
         try {
@@ -239,7 +239,7 @@ class Bouncer {
             if (username.equals(ADMIN_USER)) {
                 return 1;
             }
-            else if (username.startsWith(ADMIN_GRAFANA)) {
+            else if (username.startsWith(ADMIN_BASIC_AUTH)) {
                 return 2;
             }
             else {

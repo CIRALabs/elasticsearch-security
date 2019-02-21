@@ -34,8 +34,8 @@ class PluginSettings {
             Setting.simpleString("elastic-auth-plugin.admin.user", Setting.Property.NodeScope);
     static final Setting<String> ADMIN_PASSWORD_SETTING =
             Setting.simpleString("elastic-auth-plugin.admin.password", Setting.Property.NodeScope);
-    static final Setting<String> ADMIN_GRAFANA_SETTING =
-            Setting.simpleString("elastic-auth-plugin.admin.grafana", Setting.Property.NodeScope);
+    static final Setting<String> ADMIN_BASIC_AUTH_SETTING =
+            Setting.simpleString("elastic-auth-plugin.admin.basic-auth", Setting.Property.NodeScope);
     static final Setting<List<String>> WHITELISTED_PATHS_SETTING =
             Setting.listSetting("elastic-auth-plugin.perm.whitelisted", Collections.emptyList(), s -> s, Setting.Property.NodeScope);
 
@@ -45,7 +45,7 @@ class PluginSettings {
                 LDAP_ELK_GROUPS_MASTERS_CN_SETTING, LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING,
                 LDAP_ELK_GROUPS_USERS_CN_SETTING, LDAP_GROUP_BASE_DN_SETTING, ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING,
                 JWT_ISSUER_SETTING, JWT_SIGNING_KEY_SETTING, ADMIN_USER_SETTING, ADMIN_PASSWORD_SETTING,
-                ADMIN_GRAFANA_SETTING, WHITELISTED_PATHS_SETTING
+                ADMIN_BASIC_AUTH_SETTING, WHITELISTED_PATHS_SETTING
         );
     }
 
