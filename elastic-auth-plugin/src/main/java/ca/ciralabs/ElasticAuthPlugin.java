@@ -45,13 +45,19 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
                 Token token = isAllowedBasicAuth > 0 ?
                         bouncer.handleBasicAuth(request, isAllowedBasicAuth == 1) : bouncer.handleBearerAuth(request);
                 if (token.isSuccessful()) {
-                    // TODO We want to pass these updated cookies back and forth to monitor access count
-                    // threadContext.addResponseHeader("cookie", "cookie goes here");
-                    originalHandler.handleRequest(request, channel, client);
+                    if (token.isAuthorized()) {
+                        // TODO We want to pass these updated cookies back and forth to monitor access count
+                        // threadContext.addResponseHeader("cookie", "cookie goes here");
+                        originalHandler.handleRequest(request, channel, client);
+                    }
+                    else {
+                        RestResponse response = new BytesRestResponse(RestStatus.FORBIDDEN, "Access forbidden.");
+                        channel.sendResponse(response);
+                    }
                     return;
                 }
             }
-            RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Access denied.");
+            RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Unauthorized access.");
             channel.sendResponse(response);
         };
     }

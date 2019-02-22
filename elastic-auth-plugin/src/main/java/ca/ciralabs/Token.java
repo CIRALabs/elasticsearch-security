@@ -9,12 +9,14 @@ class Token {
 
     private String token;
     private boolean success;
+    private boolean authorized;
     private String expiry;
     private int userType;
 
-    Token(String token, boolean success, Date expiry, int userType) {
+    Token(String token, boolean success, boolean authorized, Date expiry, int userType) {
         this.token = token;
         this.success = success;
+        this.authorized = authorized;
         this.expiry = expiry != null ? DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.ofInstant(expiry.toInstant(), ZoneOffset.UTC)) : "";
         this.userType = userType;
     }
@@ -25,6 +27,10 @@ class Token {
 
     boolean isSuccessful() {
         return success;
+    }
+
+    boolean isAuthorized() {
+        return authorized;
     }
 
     String getExpiry() {

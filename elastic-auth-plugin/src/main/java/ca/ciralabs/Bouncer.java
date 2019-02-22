@@ -71,7 +71,8 @@ class Bouncer {
 
     private static final String INDEX = "index";
     private static final String[] EMPTY_PERMISSIONS = new String[0];
-    private static final Token FAILURE_TOKEN = new Token(null, false, null, 0);
+    private static final Token FAILURE_TOKEN = new Token(null, false, false, null, 0);
+    private static final Token FORBIDDEN_TOKEN = new Token(null, true, false, null, 0);
     private static final String USER_CLAIM = "user";
     private static final Charset ASCII_CHARSET = StandardCharsets.US_ASCII;
     private static final String UNIQUE_MEMBER_ATTRIBUTE = "uniqueMember";
@@ -175,7 +176,7 @@ class Bouncer {
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
         if (isAdminUser) {
             // Admin is controlled by yml, so read the password from config, not from LDAP
-            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, null, MASTER) : FAILURE_TOKEN;
+            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, true, null, MASTER) : FAILURE_TOKEN;
         }
         SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
@@ -271,7 +272,7 @@ class Bouncer {
                     .setExpiration(expiryTime)
                     .claim(USER_CLAIM, username)
                     .signWith(SignatureAlgorithm.HS256, SIGNING_KEY)
-                .compact(), true, expiryTime, userType)
+                .compact(), true, true, expiryTime, userType)
         );
     }
 
@@ -305,7 +306,7 @@ class Bouncer {
         catch (MalformedAuthHeaderException | SignatureException | MalformedJwtException e) {
             logger.debug(e);
         }
-        return success ? generateJwt(username, userType) : FAILURE_TOKEN;
+        return success ? generateJwt(username, userType) : FORBIDDEN_TOKEN;
     }
 
     private String extractIndexOrNull(RestRequest request) {
