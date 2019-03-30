@@ -89,10 +89,10 @@ class Bouncer {
     private final String ADMIN_USER;
     private final CharBuffer ADMIN_PASSWORD;
     private final String ADMIN_BASIC_AUTH;
-    /** These are POST endpoints which are "safe" (read-only) for regular users. */
+    /** These are POST endpoints which are "safe" (read-only, mostly) for regular users. */
     private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
                                                              "/_search/scroll", "/_search/scroll/_all", "/.kibana",
-                                                             "_field_caps"
+                                                             "_field_caps", "/_xpack/sql"
                                                             ).collect(toList());
     private final String LDAP_HOST;
     private final int LDAP_PORT;
