@@ -19,7 +19,7 @@ project {
     dependency {
       groupId 'org.elasticsearch'
       artifactId 'elasticsearch'
-      version '7.0.0-rc1'
+      version '7.0.0-rc2'
       scope 'provided'
     }
     dependency {

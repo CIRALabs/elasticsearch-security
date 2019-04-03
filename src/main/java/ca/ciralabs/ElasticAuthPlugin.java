@@ -38,7 +38,7 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
                 bouncer = new Bouncer(client.settings());
             }
             
-            //logger.info(request.method() + ": " + request.rawPath());
+            
             // Access the Token API without restriction
             if (request.path().endsWith(TOKEN_PATH)) {
                 originalHandler.handleRequest(request, channel, client);
@@ -56,12 +56,14 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
                         originalHandler.handleRequest(request, channel, client);
                     }
                     else {
+                        logger.info("Forbidden: " + request.method() + ": " + request.rawPath());
                         RestResponse response = new BytesRestResponse(RestStatus.FORBIDDEN, "Access forbidden.");
                         channel.sendResponse(response);
                     }
                     return;
                 }
             }
+            logger.info("Unauthorized: " + request.method() + ": " + request.rawPath());
             RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Unauthorized access.");
             channel.sendResponse(response);
         };
