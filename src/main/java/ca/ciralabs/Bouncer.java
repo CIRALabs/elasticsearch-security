@@ -92,7 +92,7 @@ class Bouncer {
     /** These are POST endpoints which are "safe" (read-only, mostly) for regular users. */
     private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
                                                              "/_search/scroll", "/_search/scroll/_all", "/.kibana",
-                                                             "_field_caps", "/_xpack/sql"
+                                                             "_field_caps", "/_xpack/sql", "/_sql"
                                                             ).collect(toList());
     private final String LDAP_HOST;
     private final int LDAP_PORT;

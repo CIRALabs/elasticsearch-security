@@ -15,6 +15,8 @@ import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestHandler;
 import org.elasticsearch.rest.RestResponse;
 import org.elasticsearch.rest.RestStatus;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
@@ -27,6 +29,7 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
 
     /** He checks your ID! <i>*cymbal crash*</i> */
     static Bouncer bouncer;
+    private static final Logger logger = LogManager.getLogger(ElasticAuthPlugin.class);
 
     @Override
     public UnaryOperator<RestHandler> getRestHandlerWrapper(ThreadContext threadContext) {
@@ -34,6 +37,8 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
             if (bouncer == null) {
                 bouncer = new Bouncer(client.settings());
             }
+            
+            //logger.info(request.method() + ": " + request.rawPath());
             // Access the Token API without restriction
             if (request.path().endsWith(TOKEN_PATH)) {
                 originalHandler.handleRequest(request, channel, client);
