@@ -2,7 +2,7 @@ project {
   modelVersion '4.0.0'
   groupId 'ca.ciralabs'
   artifactId 'elastic-auth-plugin'
-  version '2019.04.03'
+  version '2019.04.11'
   description 'Provides authentication support for Elasticsearch'
   properties {
     'project.build.sourceEncoding' 'UTF-8'
@@ -19,7 +19,7 @@ project {
     dependency {
       groupId 'org.elasticsearch'
       artifactId 'elasticsearch'
-      version '7.0.0-rc2'
+      version '7.0.0'
       scope 'provided'
     }
     dependency {
