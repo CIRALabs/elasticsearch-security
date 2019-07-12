@@ -3,5 +3,5 @@ grant {
   permission java.net.SocketPermission "*:636", "connect,resolve";
   permission java.lang.RuntimePermission "accessDeclaredMembers";
   permission java.lang.reflect.ReflectPermission "suppressAccessChecks";
-  permission java.io.FilePermission "bundle.crt", "read";
+  permission java.io.FilePermission "plugins/elastic-auth-plugin/bundle.crt", "read";
 };

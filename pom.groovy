@@ -2,7 +2,7 @@ project {
   modelVersion '4.0.0'
   groupId 'ca.ciralabs'
   artifactId 'elastic-auth-plugin'
-  version '2019.04.11'
+  version '2019.07.11'
   description 'Provides authentication support for Elasticsearch'
   properties {
     'project.build.sourceEncoding' 'UTF-8'
@@ -19,7 +19,7 @@ project {
     dependency {
       groupId 'org.elasticsearch'
       artifactId 'elasticsearch'
-      version '7.0.0'
+      version '7.2.0'
       scope 'provided'
     }
     dependency {
@@ -29,14 +29,20 @@ project {
     }
     dependency {
       groupId 'io.jsonwebtoken'
-      artifactId 'jjwt'
-      version '0.9.1'
-      exclusions {
-        exclusion {
-          groupId 'com.fasterxml.jackson.core'
-          artifactId 'jackson-core'
-        }
-      }
+      artifactId 'jjwt-api'
+      version '0.10.5'
+    }
+    dependency {
+      groupId 'io.jsonwebtoken'
+      artifactId 'jjwt-impl'
+      version '0.10.5'
+      scope 'runtime'
+    }
+    dependency {
+      groupId 'io.jsonwebtoken'
+      artifactId 'jjwt-jackson'
+      version '0.10.5'
+      scope 'runtime'
     }
   }
   build {

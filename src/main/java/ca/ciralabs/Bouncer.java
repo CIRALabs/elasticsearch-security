@@ -12,14 +12,14 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.SignatureException;
+import io.jsonwebtoken.security.Keys;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.SpecialPermission;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.rest.RestRequest;
 
+import javax.crypto.SecretKey;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.BufferedInputStream;
@@ -85,7 +85,7 @@ class Bouncer {
 
     private final String ELASTIC_INDEX_PERM_ATTRIBUTE;
     private final String ISSUER;
-    private final byte[] SIGNING_KEY;
+    private final SecretKey SIGNING_KEY;
     private final String ADMIN_USER;
     private final CharBuffer ADMIN_PASSWORD;
     private final String ADMIN_BASIC_AUTH;
@@ -113,7 +113,7 @@ class Bouncer {
         ADMIN_BASIC_AUTH = ADMIN_BASIC_AUTH_SETTING.get(settings);
         WHITELISTED_PATHS.addAll(WHITELISTED_PATHS_SETTING.get(settings));
         ISSUER = JWT_ISSUER_SETTING.get(settings);
-        SIGNING_KEY = JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET);
+        SIGNING_KEY = Keys.hmacShaKeyFor(JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET));
         LDAP_HOST = LDAP_HOST_SETTING.get(settings);
         LDAP_PORT = LDAP_PORT_SETTING.get(settings);
         LDAP_BASE_DN = LDAP_BASE_DN_SETTING.get(settings);
@@ -271,7 +271,7 @@ class Bouncer {
                     .setIssuedAt(now)
                     .setExpiration(expiryTime)
                     .claim(USER_CLAIM, username)
-                    .signWith(SignatureAlgorithm.HS256, SIGNING_KEY)
+                    .signWith(SIGNING_KEY)
                 .compact(), true, true, expiryTime, userType)
         );
     }
@@ -303,7 +303,7 @@ class Bouncer {
                 }
             }
         }
-        catch (MalformedAuthHeaderException | SignatureException | MalformedJwtException e) {
+        catch (MalformedAuthHeaderException | MalformedJwtException e) {
             logger.debug(e);
         }
         return success ? generateJwt(username, userType) : FORBIDDEN_TOKEN;
