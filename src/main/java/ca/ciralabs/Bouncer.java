@@ -234,7 +234,6 @@ class Bouncer {
      * An admin user, which is configured in kibana.yml and logstash.yml, is the only user allowed to access all of ES
      * via Basic auth. Verify that the credentials are from a user <i>claiming</i> to be an admin before allowing
      * the request for further processing.
-     * <p>
      * In addition, users that begin with <code>_service.elasticsearch</code> are also allowed to use basic auth, but with
      * access defined by their LDAP attributes.
      */
