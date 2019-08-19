@@ -53,8 +53,9 @@ import static ca.ciralabs.PluginSettings.ADMIN_PASSWORD_SETTING;
 import static ca.ciralabs.PluginSettings.ADMIN_USER_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_BASE_DN_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_MASTERS_CN_SETTING;
+import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING;
+import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_USERS_CN_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_GROUP_BASE_DN_SETTING;
 import static ca.ciralabs.PluginSettings.LDAP_HOST_SETTING;
@@ -67,6 +68,7 @@ class Bouncer {
 
     private static final int MASTER = 7;
     private static final int DEVELOPER = 6;
+    private static final int POWER_USER = 5;
     private static final int USER = 4;
 
     private static final String INDEX = "index";
@@ -77,7 +79,9 @@ class Bouncer {
     private static final Charset ASCII_CHARSET = StandardCharsets.US_ASCII;
     private static final String UNIQUE_MEMBER_ATTRIBUTE = "uniqueMember";
     private static final String USER_PASSWORD_ATTRIBUTE = "userPassword";
-    /** {SSHA}... so start at index 6 */
+    /**
+     * {SSHA}... so start at index 6
+     */
     private static final int HASHED_INDEX_START = 6;
     private static final int SHA1_LENGTH = 20;
 
@@ -89,11 +93,15 @@ class Bouncer {
     private final String ADMIN_USER;
     private final CharBuffer ADMIN_PASSWORD;
     private final String ADMIN_BASIC_AUTH;
-    /** These are POST endpoints which are "safe" (read-only, mostly) for regular users. */
+    /**
+     * These are POST endpoints which are "safe" (read-only, mostly) for regular users.
+     */
     private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
-                                                             "/_search/scroll", "/_search/scroll/_all", "/.kibana",
-                                                             "_field_caps", "/_xpack/sql", "/_sql"
-                                                            ).collect(toList());
+            "/_search/scroll", "/_search/scroll/_all", "/.kibana",
+            "_field_caps", "/_xpack/sql", "/_sql"
+    ).collect(toList());
+    private final List<String> MASTER_PATHS = Stream.of("/_nodes").collect(toList());
+    private final List<String> DEVELOPERS_PATHS = Stream.of("/_license", "/_settings", "/_cluster", "/_cat").collect(toList());
     private final String LDAP_HOST;
     private final int LDAP_PORT;
     private final String LDAP_BASE_DN;
@@ -104,7 +112,8 @@ class Bouncer {
     private final HashMap<String, Integer> GROUP_TO_USER_TYPE = new HashMap<>();
     private final SSLSocketFactory SSL_SOCKET_FACTORY;
 
-    private class MalformedAuthHeaderException extends Throwable {}
+    private static class MalformedAuthHeaderException extends Throwable {
+    }
 
     Bouncer(Settings settings) {
         ELASTIC_INDEX_PERM_ATTRIBUTE = ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING.get(settings);
@@ -119,10 +128,11 @@ class Bouncer {
         LDAP_BASE_DN = LDAP_BASE_DN_SETTING.get(settings);
         ELK_GROUPS_CN = LDAP_ELK_GROUPS_CN_SETTING.get(settings);
         GROUP_BASE_DN = LDAP_GROUP_BASE_DN_SETTING.get(settings);
-        LDAP_ATTRIBUTES_BASIC = new String[] {USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
-        LDAP_ATTRIBUTES_BEARER = new String[] {ELASTIC_INDEX_PERM_ATTRIBUTE};
+        LDAP_ATTRIBUTES_BASIC = new String[]{USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
+        LDAP_ATTRIBUTES_BEARER = new String[]{ELASTIC_INDEX_PERM_ATTRIBUTE};
         GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), MASTER);
         GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), DEVELOPER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), POWER_USER);
         GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_USERS_CN_SETTING.get(settings), USER);
         SSL_SOCKET_FACTORY = createSslSocketFactory();
     }
@@ -181,8 +191,7 @@ class Bouncer {
         SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
             return FAILURE_TOKEN;
-        }
-        else {
+        } else {
             SearchResultEntry entry = searchResult.getSearchEntries().get(0);
             CharBuffer ldapPassword = ASCII_CHARSET.decode(ByteBuffer.wrap(entry.getAttributeValueBytes(USER_PASSWORD_ATTRIBUTE)));
             boolean success = verifyPassword(password, ldapPassword);
@@ -225,7 +234,6 @@ class Bouncer {
      * An admin user, which is configured in kibana.yml and logstash.yml, is the only user allowed to access all of ES
      * via Basic auth. Verify that the credentials are from a user <i>claiming</i> to be an admin before allowing
      * the request for further processing.
-     *
      * In addition, users that begin with <code>_service.elasticsearch</code> are also allowed to use basic auth, but with
      * access defined by their LDAP attributes.
      */
@@ -239,15 +247,12 @@ class Bouncer {
             String username = decoded.substring(0, decoded.lastIndexOf(':'));
             if (username.equals(ADMIN_USER)) {
                 return 1;
-            }
-            else if (username.startsWith(ADMIN_BASIC_AUTH)) {
+            } else if (username.startsWith(ADMIN_BASIC_AUTH)) {
                 return 2;
-            }
-            else {
+            } else {
                 return 0;
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             return 0;
         }
     }
@@ -266,13 +271,13 @@ class Bouncer {
             sm.checkPermission(new SpecialPermission());
         }
         return AccessController.doPrivileged((PrivilegedAction<Token>) () ->
-            new Token(Jwts.builder()
-                    .setIssuer(ISSUER)
-                    .setIssuedAt(now)
-                    .setExpiration(expiryTime)
-                    .claim(USER_CLAIM, username)
-                    .signWith(SIGNING_KEY)
-                .compact(), true, true, expiryTime, userType)
+                new Token(Jwts.builder()
+                        .setIssuer(ISSUER)
+                        .setIssuedAt(now)
+                        .setExpiration(expiryTime)
+                        .claim(USER_CLAIM, username)
+                        .signWith(SIGNING_KEY)
+                        .compact(), true, true, expiryTime, userType)
         );
     }
 
@@ -302,8 +307,7 @@ class Bouncer {
                     success = handlePermission(userType, permissions, index, request);
                 }
             }
-        }
-        catch (MalformedAuthHeaderException | MalformedJwtException e) {
+        } catch (MalformedAuthHeaderException | MalformedJwtException e) {
             logger.debug(e);
         }
         return success ? generateJwt(username, userType) : FORBIDDEN_TOKEN;
@@ -330,8 +334,8 @@ class Bouncer {
         return null;
     }
 
-    private boolean isWhitelisted(String path) {
-        for (String goodPath : WHITELISTED_PATHS) {
+    private boolean listContains(String path, List<String> list) {
+        for (String goodPath : list) {
             if (path.contains(goodPath)) {
                 return true;
             }
@@ -347,7 +351,7 @@ class Bouncer {
                 String[] indexToPerm = specialPermission.split(":");
                 if (index.startsWith(indexToPerm[0])) {
                     // This rule matches the request, so is it allowed?
-                    return evaluatePermissionOctal(request, Integer.valueOf(indexToPerm[1]));
+                    return evaluatePermissionOctal(request, Integer.parseInt(indexToPerm[1]));
                 }
             }
             // If no special permission matches, fall through to user type permissions
@@ -358,9 +362,11 @@ class Bouncer {
     private boolean evaluatePermissionOctal(RestRequest request, int octal) {
         switch (octal) {
             case USER:
-                return request.method() == Method.GET || request.method() == Method.HEAD || isWhitelisted(request.path());
+                return request.method() == Method.GET || request.method() == Method.HEAD || listContains(request.path(), WHITELISTED_PATHS);
+            case POWER_USER:
+                return !(request.method() == Method.DELETE || listContains(request.path(), MASTER_PATHS) || listContains(request.path(), DEVELOPERS_PATHS));
             case DEVELOPER:
-                return request.method() != Method.DELETE;
+                return !(request.method() == Method.DELETE || listContains(request.path(), MASTER_PATHS));
             case MASTER:
                 return true;
             default:
@@ -396,8 +402,7 @@ class Bouncer {
                 cnxn.connect(LDAP_HOST, LDAP_PORT);
                 Filter filter = Filter.create(String.format("cn=%s", cn));
                 return cnxn.search(new SearchRequest(baseDn, SearchScope.SUB, filter, attributes));
-            }
-            catch (LDAPException e) {
+            } catch (LDAPException e) {
                 logger.error("Something failed in the LDAP lookup", e);
                 return null;
             }
