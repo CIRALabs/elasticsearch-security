@@ -101,7 +101,7 @@ class Bouncer {
             "_field_caps", "/_xpack/sql", "/_sql"
     ).collect(toList());
     private final List<String> MASTER_PATHS = Stream.of("/_nodes").collect(toList());
-    private final List<String> DEVELOPERS_PATHS = Stream.of("/_settings", "/_cluster", "/_cat").collect(toList());
+    private final List<String> DEVELOPERS_PATHS = Stream.of("/_license", "/_settings", "/_cluster", "/_cat").collect(toList());
     private final String LDAP_HOST;
     private final int LDAP_PORT;
     private final String LDAP_BASE_DN;
