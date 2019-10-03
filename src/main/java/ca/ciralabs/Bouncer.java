@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import ca.ciralabs.UserInfo.UserType;
 
 import static ca.ciralabs.PluginSettings.*;
 import static java.util.stream.Collectors.toList;
@@ -89,7 +90,7 @@ class Bouncer {
     private final String GROUP_BASE_DN;
     private final String[] LDAP_ATTRIBUTES_BASIC;
     private final String[] LDAP_ATTRIBUTES_BEARER;
-    private final HashMap<String, UserInfo.UserType> GROUP_TO_USER_TYPE = new HashMap<>();
+    private final HashMap<String, UserType> GROUP_TO_USER_TYPE = new HashMap<>();
     private final SSLSocketFactory SSL_SOCKET_FACTORY;
 
     private static class MalformedAuthHeaderException extends Throwable {
@@ -110,10 +111,10 @@ class Bouncer {
         GROUP_BASE_DN = LDAP_GROUP_BASE_DN_SETTING.get(settings);
         LDAP_ATTRIBUTES_BASIC = new String[]{USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
         LDAP_ATTRIBUTES_BEARER = new String[]{ELASTIC_INDEX_PERM_ATTRIBUTE};
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), UserInfo.UserType.MASTER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), UserInfo.UserType.DEVELOPER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), UserInfo.UserType.POWER_USER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_USERS_CN_SETTING.get(settings), UserInfo.UserType.USER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), UserType.MASTER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), UserType.DEVELOPER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), UserType.POWER_USER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_USERS_CN_SETTING.get(settings), UserType.USER);
         SSL_SOCKET_FACTORY = createSslSocketFactory();
     }
 
@@ -166,7 +167,7 @@ class Bouncer {
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
         if (isAdminUser) {
             // Admin is controlled by yml, so read the password from config, not from LDAP
-            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, true, null, UserInfo.UserType.MASTER.getUserLevel()) : FAILURE_TOKEN;
+            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, true, null, UserType.MASTER.getUserLevel()) : FAILURE_TOKEN;
         }
         SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
@@ -177,7 +178,7 @@ class Bouncer {
             boolean success = verifyPassword(password, ldapPassword);
             clearBuffer(credentials);
             clearBuffer(ldapPassword);
-            UserInfo.UserType userType = determineUserType(username);
+            UserType userType = determineUserType(username);
             return success ? generateJwt(username, userType.getUserLevel()) : FAILURE_TOKEN;
         }
     }
@@ -296,15 +297,15 @@ class Bouncer {
         return false;
     }
 
-    private boolean handlePermission(UserInfo.UserType userType, String[] permissions, String index, RestRequest request) {
+    private boolean handlePermission(UserType userType, String[] permissions, String index, RestRequest request) {
         // Being a master overrides any set permissions
-        if (index != null && userType != UserInfo.UserType.MASTER && permissions.length > 0) {
+        if (index != null && userType != UserType.MASTER && permissions.length > 0) {
             // Special permissions are set, check them first
             for (String specialPermission : permissions) {
                 String[] indexToPerm = specialPermission.split(":");
                 if (index.startsWith(indexToPerm[0])) {
                     // This rule matches the request, so is it allowed?
-                    return evaluatePermissionUserType(request,  UserInfo.UserType.fromInteger(Integer.parseInt(indexToPerm[1])));
+                    return evaluatePermissionUserType(request,  UserType.fromInteger(Integer.parseInt(indexToPerm[1])));
                 }
             }
             // If no special permission matches, fall through to user type permissions
@@ -312,7 +313,7 @@ class Bouncer {
         return evaluatePermissionUserType(request, userType);
     }
 
-    private boolean evaluatePermissionUserType(RestRequest request, UserInfo.UserType userType) {
+    private boolean evaluatePermissionUserType(RestRequest request, UserType userType) {
         switch (userType) {
             case USER:
                 return request.method() == Method.GET || request.method() == Method.HEAD || listContains(request.path(), WHITELISTED_PATHS);
@@ -363,7 +364,7 @@ class Bouncer {
     }
 
     // TODO Use memberOf attribute in the future to simplify, reduce to one LDAP call
-    private UserInfo.UserType determineUserType(String username) {
+    private UserType determineUserType(String username) {
         SearchResult sr = queryLdap(ELK_GROUPS_CN, GROUP_BASE_DN, UNIQUE_MEMBER_ATTRIBUTE);
         if (sr != null && sr.getEntryCount() != 0) {
             for (SearchResultEntry entry : sr.getSearchEntries()) {
@@ -374,7 +375,7 @@ class Bouncer {
                     if (username.equals(un)) {
                         String groupname = entry.getDN();
                         groupname = groupname.substring(groupname.indexOf('=') + 1, groupname.indexOf(','));
-                        UserInfo.UserType userType = GROUP_TO_USER_TYPE.get(groupname);
+                        UserType userType = GROUP_TO_USER_TYPE.get(groupname);
                         if (userType != null) {
                             return userType;
                         }
@@ -382,14 +383,14 @@ class Bouncer {
                 }
             }
         }
-        return UserInfo.UserType.BADUSER;
+        return UserType.BADUSER;
     }
 
 
     UserInfo getUserInfoAndAuthenticate(RestRequest request) {
         boolean success = false;
         String username = null;
-        UserInfo.UserType userType = UserInfo.UserType.BADUSER;
+        UserType userType = UserType.BADUSER;
         try {
             CharBuffer credentials = extractCredentialsFromRequest(request);
             SecurityManager sm = System.getSecurityManager();
