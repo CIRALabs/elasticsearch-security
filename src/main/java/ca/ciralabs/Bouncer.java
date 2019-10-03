@@ -45,31 +45,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-import static ca.ciralabs.PluginSettings.ADMIN_BASIC_AUTH_SETTING;
-import static ca.ciralabs.PluginSettings.ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING;
-import static ca.ciralabs.PluginSettings.JWT_ISSUER_SETTING;
-import static ca.ciralabs.PluginSettings.JWT_SIGNING_KEY_SETTING;
-import static ca.ciralabs.PluginSettings.ADMIN_PASSWORD_SETTING;
-import static ca.ciralabs.PluginSettings.ADMIN_USER_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_BASE_DN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_MASTERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_USERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_GROUP_BASE_DN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_HOST_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_PORT_SETTING;
-import static ca.ciralabs.PluginSettings.WHITELISTED_PATHS_SETTING;
+import static ca.ciralabs.PluginSettings.*;
 import static java.util.stream.Collectors.toList;
 import static org.elasticsearch.rest.RestRequest.Method;
 
 class Bouncer {
-
-    private static final int MASTER = 7;
-    private static final int DEVELOPER = 6;
-    private static final int POWER_USER = 5;
-    private static final int USER = 4;
 
     private static final String INDEX = "index";
     private static final String[] EMPTY_PERMISSIONS = new String[0];
@@ -109,7 +89,7 @@ class Bouncer {
     private final String GROUP_BASE_DN;
     private final String[] LDAP_ATTRIBUTES_BASIC;
     private final String[] LDAP_ATTRIBUTES_BEARER;
-    private final HashMap<String, Integer> GROUP_TO_USER_TYPE = new HashMap<>();
+    private final HashMap<String, UserInfo.UserType> GROUP_TO_USER_TYPE = new HashMap<>();
     private final SSLSocketFactory SSL_SOCKET_FACTORY;
 
     private static class MalformedAuthHeaderException extends Throwable {
@@ -130,10 +110,10 @@ class Bouncer {
         GROUP_BASE_DN = LDAP_GROUP_BASE_DN_SETTING.get(settings);
         LDAP_ATTRIBUTES_BASIC = new String[]{USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
         LDAP_ATTRIBUTES_BEARER = new String[]{ELASTIC_INDEX_PERM_ATTRIBUTE};
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), MASTER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), DEVELOPER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), POWER_USER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_USERS_CN_SETTING.get(settings), USER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), UserInfo.UserType.MASTER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), UserInfo.UserType.DEVELOPER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), UserInfo.UserType.POWER_USER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_USERS_CN_SETTING.get(settings), UserInfo.UserType.USER);
         SSL_SOCKET_FACTORY = createSslSocketFactory();
     }
 
@@ -186,7 +166,7 @@ class Bouncer {
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
         if (isAdminUser) {
             // Admin is controlled by yml, so read the password from config, not from LDAP
-            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, true, null, MASTER) : FAILURE_TOKEN;
+            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, true, null, UserInfo.UserType.MASTER.getUserLevel()) : FAILURE_TOKEN;
         }
         SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BASIC);
         if (searchResult == null || searchResult.getEntryCount() == 0) {
@@ -197,8 +177,8 @@ class Bouncer {
             boolean success = verifyPassword(password, ldapPassword);
             clearBuffer(credentials);
             clearBuffer(ldapPassword);
-            int userType = determineUserType(username);
-            return success ? generateJwt(username, userType) : FAILURE_TOKEN;
+            UserInfo.UserType userType = determineUserType(username);
+            return success ? generateJwt(username, userType.getUserLevel()) : FAILURE_TOKEN;
         }
     }
 
@@ -282,35 +262,8 @@ class Bouncer {
     }
 
     Token handleBearerAuth(RestRequest request) {
-        boolean success = false;
-        String username = null;
-        int userType = 0;
-        try {
-            CharBuffer credentials = extractCredentialsFromRequest(request);
-            SecurityManager sm = System.getSecurityManager();
-            if (sm != null) {
-                sm.checkPermission(new SpecialPermission());
-            }
-            Jws<Claims> jwt = AccessController.doPrivileged((PrivilegedAction<Jws<Claims>>) () ->
-                    Jwts.parser().setSigningKey(SIGNING_KEY).parseClaimsJws(credentials.toString())
-            );
-            username = (String) jwt.getBody().get(USER_CLAIM);
-            if (username != null) {
-                SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BEARER);
-                if (searchResult != null && searchResult.getEntryCount() != 0) {
-                    SearchResultEntry entry = searchResult.getSearchEntries().get(0);
-                    userType = determineUserType(username);
-                    String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) != null ?
-                            entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) :
-                            EMPTY_PERMISSIONS;
-                    String index = extractIndexOrNull(request);
-                    success = handlePermission(userType, permissions, index, request);
-                }
-            }
-        } catch (MalformedAuthHeaderException | MalformedJwtException e) {
-            logger.debug(e);
-        }
-        return success ? generateJwt(username, userType) : FORBIDDEN_TOKEN;
+        UserInfo userInfo = getUserInfoAndAuthenticate(request);
+        return userInfo.isSuccessful() ? generateJwt(userInfo.getUsername(), userInfo.getUserLevel()) : FORBIDDEN_TOKEN;
     }
 
     private String extractIndexOrNull(RestRequest request) {
@@ -343,24 +296,24 @@ class Bouncer {
         return false;
     }
 
-    private boolean handlePermission(int userType, String[] permissions, String index, RestRequest request) {
+    private boolean handlePermission(UserInfo.UserType userType, String[] permissions, String index, RestRequest request) {
         // Being a master overrides any set permissions
-        if (index != null && userType != MASTER && permissions.length > 0) {
+        if (index != null && userType != UserInfo.UserType.MASTER && permissions.length > 0) {
             // Special permissions are set, check them first
             for (String specialPermission : permissions) {
                 String[] indexToPerm = specialPermission.split(":");
                 if (index.startsWith(indexToPerm[0])) {
                     // This rule matches the request, so is it allowed?
-                    return evaluatePermissionOctal(request, Integer.parseInt(indexToPerm[1]));
+                    return evaluatePermissionUserType(request,  UserInfo.UserType.fromInteger(Integer.parseInt(indexToPerm[1])));
                 }
             }
             // If no special permission matches, fall through to user type permissions
         }
-        return evaluatePermissionOctal(request, userType);
+        return evaluatePermissionUserType(request, userType);
     }
 
-    private boolean evaluatePermissionOctal(RestRequest request, int octal) {
-        switch (octal) {
+    private boolean evaluatePermissionUserType(RestRequest request, UserInfo.UserType userType) {
+        switch (userType) {
             case USER:
                 return request.method() == Method.GET || request.method() == Method.HEAD || listContains(request.path(), WHITELISTED_PATHS);
             case POWER_USER:
@@ -410,7 +363,7 @@ class Bouncer {
     }
 
     // TODO Use memberOf attribute in the future to simplify, reduce to one LDAP call
-    private int determineUserType(String username) {
+    private UserInfo.UserType determineUserType(String username) {
         SearchResult sr = queryLdap(ELK_GROUPS_CN, GROUP_BASE_DN, UNIQUE_MEMBER_ATTRIBUTE);
         if (sr != null && sr.getEntryCount() != 0) {
             for (SearchResultEntry entry : sr.getSearchEntries()) {
@@ -421,15 +374,47 @@ class Bouncer {
                     if (username.equals(un)) {
                         String groupname = entry.getDN();
                         groupname = groupname.substring(groupname.indexOf('=') + 1, groupname.indexOf(','));
-                        Integer result = GROUP_TO_USER_TYPE.get(groupname);
-                        if (result != null) {
-                            return result;
+                        UserInfo.UserType userType = GROUP_TO_USER_TYPE.get(groupname);
+                        if (userType != null) {
+                            return userType;
                         }
                     }
                 }
             }
         }
-        return 0;
+        return UserInfo.UserType.BADUSER;
     }
 
+
+    UserInfo getUserInfoAndAuthenticate(RestRequest request) {
+        boolean success = false;
+        String username = null;
+        UserInfo.UserType userType = UserInfo.UserType.BADUSER;
+        try {
+            CharBuffer credentials = extractCredentialsFromRequest(request);
+            SecurityManager sm = System.getSecurityManager();
+            if (sm != null) {
+                sm.checkPermission(new SpecialPermission());
+            }
+            Jws<Claims> jwt = AccessController.doPrivileged((PrivilegedAction<Jws<Claims>>) () ->
+                    Jwts.parser().setSigningKey(SIGNING_KEY).parseClaimsJws(credentials.toString())
+            );
+            username = (String) jwt.getBody().get(USER_CLAIM);
+            if (username != null) {
+                SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BEARER);
+                if (searchResult != null && searchResult.getEntryCount() != 0) {
+                    SearchResultEntry entry = searchResult.getSearchEntries().get(0);
+                    userType = determineUserType(username);
+                    String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) != null ?
+                            entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) :
+                            EMPTY_PERMISSIONS;
+                    String index = extractIndexOrNull(request);
+                    success = handlePermission(userType, permissions, index, request);
+                }
+            }
+        } catch (MalformedAuthHeaderException | MalformedJwtException e) {
+            logger.debug(e);
+        }
+        return new UserInfo(username, userType, success);
+    }
 }

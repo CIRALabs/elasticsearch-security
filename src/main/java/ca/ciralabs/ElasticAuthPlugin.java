@@ -24,6 +24,7 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 import static ca.ciralabs.TokenRestAction.TOKEN_PATH;
+import static ca.ciralabs.UserInfoRestAction.USER_INFO_PATH;
 
 public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
 
@@ -40,7 +41,7 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
             
             
             // Access the Token API without restriction
-            if (request.path().endsWith(TOKEN_PATH)) {
+            if (request.path().endsWith(TOKEN_PATH) || request.path().endsWith(USER_INFO_PATH)) {
                 originalHandler.handleRequest(request, channel, client);
                 return;
             }
