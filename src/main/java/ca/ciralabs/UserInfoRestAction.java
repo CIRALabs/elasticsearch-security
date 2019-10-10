@@ -6,6 +6,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.rest.*;
 
+import static org.elasticsearch.rest.RestRequest.Method;
 import static ca.ciralabs.ElasticAuthPlugin.bouncer;
 
 public class UserInfoRestAction extends BaseRestHandler {
@@ -13,18 +14,18 @@ public class UserInfoRestAction extends BaseRestHandler {
     static final String USER_INFO_PATH = "user_info";
 
     @Inject
-    protected UserInfoRestAction(Settings settings, RestController controller) {
+    UserInfoRestAction(Settings settings, RestController controller) {
         super(settings);
-        controller.registerHandler(RestRequest.Method.POST, USER_INFO_PATH, this);
+        controller.registerHandler(Method.POST, USER_INFO_PATH, this);
     }
 
     @Override
     public String getName() {
-        return "UserInfo";
+        return "UserInfoRestAction";
     }
 
     @Override
-    protected BaseRestHandler.RestChannelConsumer prepareRequest(RestRequest request, NodeClient client) {
+    protected RestChannelConsumer prepareRequest(RestRequest request, NodeClient client) {
         return channel -> {
             UserInfo userInfo = bouncer.getUserInfoAndAuthenticate(request);
             if (userInfo.isSuccessful()) {

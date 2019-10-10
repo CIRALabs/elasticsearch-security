@@ -18,7 +18,8 @@ import org.elasticsearch.rest.RestStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -62,7 +63,7 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
                         channel.sendResponse(response);
                     }
                     return;
-                }
+                    }
             }
             logger.info("Unauthorized: " + request.method() + ": " + request.rawPath());
             RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Unauthorized access.");
@@ -79,6 +80,6 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
     public List<RestHandler> getRestHandlers(Settings settings, RestController restController, ClusterSettings clusterSettings,
                                              IndexScopedSettings indexScopedSettings, SettingsFilter settingsFilter,
                                              IndexNameExpressionResolver indexNameExpressionResolver, Supplier<DiscoveryNodes> nodesInCluster) {
-        return Collections.singletonList(new TokenRestAction(settings, restController));
+        return new ArrayList<>(Arrays.asList(new TokenRestAction(settings, restController), new UserInfoRestAction(settings, restController)));
     }
 }
