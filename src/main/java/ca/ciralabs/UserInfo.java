@@ -19,15 +19,15 @@ class UserInfo {
         }
 
         public static UserType fromInteger(int userLevel) {
-            if (userLevel == MASTER.getUserLevel()){
+            if (userLevel == MASTER.getUserLevel()) {
                 return MASTER;
-            }else if (userLevel == DEVELOPER.getUserLevel()){
+            } else if (userLevel == DEVELOPER.getUserLevel()) {
                 return DEVELOPER;
-            }else if (userLevel == POWER_USER.getUserLevel()){
+            } else if (userLevel == POWER_USER.getUserLevel()) {
                 return POWER_USER;
-            }else if (userLevel == USER.getUserLevel()){
+            } else if (userLevel == USER.getUserLevel()) {
                 return USER;
-            }else {
+            } else {
                 return BADUSER;
             }
         }
@@ -36,6 +36,12 @@ class UserInfo {
     private final String username;
     private final UserType userType;
     private final boolean success;
+
+    UserInfo() {
+        username = null;
+        userType = null;
+        success = false;
+    }
 
     UserInfo(String username, UserType userType, boolean success) {
         this.username = username;
@@ -48,6 +54,7 @@ class UserInfo {
     }
 
     int getUserLevel() {
+        assert userType != null;
         return userType.getUserLevel();
     }
 

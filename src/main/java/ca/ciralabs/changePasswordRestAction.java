@@ -9,31 +9,29 @@ import org.elasticsearch.rest.*;
 import static ca.ciralabs.ElasticAuthPlugin.bouncer;
 import static org.elasticsearch.rest.RestRequest.Method;
 
-public class UserInfoRestAction extends BaseRestHandler {
+public class changePasswordRestAction extends BaseRestHandler {
 
-    static final String USER_INFO_PATH = "user_info";
+    static final String CHANGE_PASSWORD_PATH = "change_password";
 
     @Inject
-    UserInfoRestAction(Settings settings, RestController controller) {
+    changePasswordRestAction(Settings settings, RestController controller) {
         super(settings);
-        controller.registerHandler(Method.GET, USER_INFO_PATH, this);
+        controller.registerHandler(Method.POST, CHANGE_PASSWORD_PATH, this);
     }
 
     @Override
     public String getName() {
-        return "UserInfoRestAction";
+        return "changePasswordRestAction";
     }
 
     @Override
     protected RestChannelConsumer prepareRequest(RestRequest request, NodeClient client) {
         return channel -> {
-            UserInfo userInfo = bouncer.getUserInfoFromJWT(request);
-            if (userInfo.isSuccessful()) {
+            boolean isSuccessful = bouncer.changePassword(request);
+            if (isSuccessful) {
                 XContentBuilder builder = channel.newBuilder();
                 builder.startObject();
                 builder.field("success", 1);
-                builder.field("user_type", userInfo.getUserType().name());
-                builder.field("user_name", userInfo.getUsername());
                 builder.endObject();
                 channel.sendResponse(new BytesRestResponse(RestStatus.OK, builder));
             } else {
