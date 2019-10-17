@@ -29,6 +29,7 @@ import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static ca.ciralabs.PluginSettings.*;
@@ -64,7 +65,7 @@ class Bouncer {
      */
     private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
             "/_search/scroll", "/_search/scroll/_all", "/.kibana",
-            "_field_caps", "/_xpack/sql", "/_sql"
+            "_field_caps", "/_xpack/sql", "/_sql", "/change_password"
     ).collect(toList());
     private final List<String> MASTER_PATHS = Stream.of("/_nodes").collect(toList());
     private final List<String> DEVELOPERS_PATHS = Stream.of("/_license", "/_settings", "/_cluster", "/_cat").collect(toList());
@@ -345,19 +346,20 @@ class Bouncer {
         });
     }
 
-    private void modifyLdap(String dn, String attribute, byte[] attributeValue) {
+    private boolean modifyLdap(String dn, CharBuffer bindPassword, String attribute, byte[] attributeValue) {
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             sm.checkPermission(new SpecialPermission());
         }
-        AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
+        return AccessController.doPrivileged((PrivilegedAction<Boolean>) () -> {
             try (LDAPConnection cnxn = new LDAPConnection(SSL_SOCKET_FACTORY)) {
                 cnxn.connect(LDAP_HOST, LDAP_PORT);
-                logger.info(cnxn.modify(dn, new Modification(ModificationType.REPLACE, attribute, attributeValue)).toString());
+                cnxn.bind(dn, bindPassword.toString());
+                return cnxn.modify(dn, new Modification(ModificationType.REPLACE, attribute, attributeValue)).getResultCode().equals(ResultCode.SUCCESS);
             } catch (LDAPException e) {
                 logger.error("Something failed in the LDAP modify", e);
             }
-            return null;
+            return false;
         });
     }
 
@@ -432,26 +434,26 @@ class Bouncer {
     }
 
     boolean changePassword(RestRequest request) {
-        logger.info(request.getHeaders().values().toString());
-        UserInfo userInfoJWT = getUserInfoFromJWT(request);
-        logger.info(request.hasParam("password"));
-        logger.info(request.params().get("password"));
-        UserInfo userInfoPassword = authenticateRequest(userInfoJWT.getUsername(), ASCII_CHARSET.decode(ByteBuffer.wrap(request.param("password").getBytes())));
-        logger.info(userInfoJWT.isSuccessful());
-        logger.info(userInfoPassword.isSuccessful());
-        if (userInfoJWT.isSuccessful() && userInfoPassword.isSuccessful()) {
-            byte[] salt = new byte[SHA1_LENGTH];
-            random.nextBytes(salt);
-            try {
-                modifyLdap("uid=" + userInfoJWT.getUsername() + LDAP_BASE_DN, USER_PASSWORD_ATTRIBUTE, hashPassword(ASCII_CHARSET.decode(ByteBuffer.wrap(request.param("newPassword").getBytes())), salt, "SHA-1"));
-            } catch (NoSuchAlgorithmException e) {
-                logger.debug(e);
-                return false;
+        Map<String, String> requestBody = Arrays.stream(request.content().utf8ToString().replaceAll("[{}\"]", "").split(","))
+                .map(s -> s.split(":"))
+                .collect(Collectors.toMap(a -> a[0], a -> a[1]));
+        if (requestBody.containsKey("password") && requestBody.containsKey("newPassword")) {
+            UserInfo userInfoJWT = getUserInfoFromJWT(request);
+            UserInfo userInfoPassword = authenticateRequest(userInfoJWT.getUsername(), ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("password").getBytes())));
+            if (userInfoJWT.isSuccessful() && userInfoPassword.isSuccessful()) {
+                boolean success = false;
+                byte[] salt = new byte[SHA1_LENGTH];
+                random.nextBytes(salt);
+                try {
+                    success = modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("password").getBytes())),
+                            USER_PASSWORD_ATTRIBUTE, hashPassword(ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("newPassword").getBytes())), salt, "SHA-1"));
+                } catch (NoSuchAlgorithmException e) {
+                    logger.debug(e);
+                }
+                Arrays.fill(salt, (byte) 0);
+                return success;
             }
-            Arrays.fill(salt, (byte) 0);
-            return true;
-        } else {
-            return false;
         }
+        return false;
     }
 }

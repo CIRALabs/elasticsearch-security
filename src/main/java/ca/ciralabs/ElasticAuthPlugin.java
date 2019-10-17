@@ -32,7 +32,6 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
             if (bouncer == null) {
                 bouncer = new Bouncer(client.settings());
             }
-            logger.info(request.path());
 
             // Access the Token API without restriction
             if (request.path().endsWith(TOKEN_PATH) || request.path().endsWith(USER_INFO_PATH) || request.path().endsWith(CHANGE_PASSWORD_PATH)) {
