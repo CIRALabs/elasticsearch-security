@@ -6,7 +6,8 @@ class UserInfo {
         DEVELOPER(6),
         POWER_USER(5),
         USER(4),
-        BADUSER(0);
+        OLD_PASSWORD(1),
+        BAD_USER(0);
 
         private final int userLevel;
 
@@ -27,8 +28,10 @@ class UserInfo {
                 return POWER_USER;
             } else if (userLevel == USER.getUserLevel()) {
                 return USER;
-            } else {
-                return BADUSER;
+            } else if (userLevel == OLD_PASSWORD.getUserLevel()) {
+                return OLD_PASSWORD;
+            }else {
+                return BAD_USER;
             }
         }
     }

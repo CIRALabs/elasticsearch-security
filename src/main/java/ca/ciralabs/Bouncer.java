@@ -33,6 +33,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static ca.ciralabs.PluginSettings.*;
+import static ca.ciralabs.UserInfoRestAction.USER_INFO_PATH;
+import static ca.ciralabs.changePasswordRestAction.CHANGE_PASSWORD_PATH;
 import static java.util.stream.Collectors.toList;
 import static org.elasticsearch.rest.RestRequest.Method;
 
@@ -46,6 +48,7 @@ class Bouncer {
     private static final Charset ASCII_CHARSET = StandardCharsets.US_ASCII;
     private static final String UNIQUE_MEMBER_ATTRIBUTE = "uniqueMember";
     private static final String USER_PASSWORD_ATTRIBUTE = "userPassword";
+    private static final String USER_PASSWORD_RESET_ATTRIBUTE = "shadowFlag";
     /**
      * {SSHA}... so start at index 6
      */
@@ -74,6 +77,8 @@ class Bouncer {
     private final String LDAP_BASE_DN;
     private final String ELK_GROUPS_CN;
     private final String GROUP_BASE_DN;
+    private final String MODIFICATION_DN;
+    private final String MODIFICATION_DN_PASSWORD;
     private final String[] LDAP_ATTRIBUTES_BASIC;
     private final String[] LDAP_ATTRIBUTES_BEARER;
     private final HashMap<String, UserType> GROUP_TO_USER_TYPE = new HashMap<>();
@@ -97,8 +102,10 @@ class Bouncer {
         LDAP_BASE_DN = LDAP_BASE_DN_SETTING.get(settings);
         ELK_GROUPS_CN = LDAP_ELK_GROUPS_CN_SETTING.get(settings);
         GROUP_BASE_DN = LDAP_GROUP_BASE_DN_SETTING.get(settings);
-        LDAP_ATTRIBUTES_BASIC = new String[]{USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
-        LDAP_ATTRIBUTES_BEARER = new String[]{ELASTIC_INDEX_PERM_ATTRIBUTE};
+        MODIFICATION_DN = LDAP_MODIFICATION_DN_SETTING.get(settings);
+        MODIFICATION_DN_PASSWORD = LDAP_MODIFICATION_DN_PASSWORD_SETTING.get(settings);
+        LDAP_ATTRIBUTES_BASIC = new String[]{USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE, USER_PASSWORD_RESET_ATTRIBUTE};
+        LDAP_ATTRIBUTES_BEARER = new String[]{ELASTIC_INDEX_PERM_ATTRIBUTE, USER_PASSWORD_RESET_ATTRIBUTE};
         GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), UserType.MASTER);
         GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), UserType.DEVELOPER);
         GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), UserType.POWER_USER);
@@ -185,6 +192,13 @@ class Bouncer {
         Arrays.fill(sha1PasswordFromLogin, (byte) 0);
 
         return success;
+    }
+
+    private String mergeHashedPasswordAndSalt(byte[] salt, byte[] hashedPassword) {
+        byte[] combination = new byte[SHA1_LENGTH + salt.length];
+        System.arraycopy(hashedPassword, 0, combination, 0, SHA1_LENGTH);
+        System.arraycopy(salt, 0, combination, SHA1_LENGTH, salt.length);
+        return Base64.getMimeEncoder().encodeToString(combination);
     }
 
     private byte[] hashPassword(CharBuffer password, byte[] salt, String algorithm) throws NoSuchAlgorithmException {
@@ -298,6 +312,8 @@ class Bouncer {
 
     private boolean evaluatePermissionUserType(RestRequest request, UserType userType) {
         switch (userType) {
+            case OLD_PASSWORD:
+                return request.method() == Method.GET && request.path().contains(USER_INFO_PATH) || request.method() == Method.POST && request.path().contains(CHANGE_PASSWORD_PATH);
             case USER:
                 return request.method() == Method.GET || request.method() == Method.HEAD || listContains(request.path(), WHITELISTED_PATHS);
             case POWER_USER:
@@ -346,7 +362,7 @@ class Bouncer {
         });
     }
 
-    private boolean modifyLdap(String dn, CharBuffer bindPassword, String attribute, byte[] attributeValue) {
+    private boolean modifyLdap(String dn, String attribute, String attributeValue) {
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             sm.checkPermission(new SpecialPermission());
@@ -354,7 +370,7 @@ class Bouncer {
         return AccessController.doPrivileged((PrivilegedAction<Boolean>) () -> {
             try (LDAPConnection cnxn = new LDAPConnection(SSL_SOCKET_FACTORY)) {
                 cnxn.connect(LDAP_HOST, LDAP_PORT);
-                cnxn.bind(dn, bindPassword.toString());
+                cnxn.bind(MODIFICATION_DN, MODIFICATION_DN_PASSWORD);
                 return cnxn.modify(dn, new Modification(ModificationType.REPLACE, attribute, attributeValue)).getResultCode().equals(ResultCode.SUCCESS);
             } catch (LDAPException e) {
                 logger.error("Something failed in the LDAP modify", e);
@@ -383,7 +399,7 @@ class Bouncer {
                 }
             }
         }
-        return UserType.BADUSER;
+        return UserType.BAD_USER;
     }
 
     private UserInfo authenticateRequest(String username, CharBuffer password) {
@@ -395,18 +411,20 @@ class Bouncer {
             CharBuffer ldapPassword = ASCII_CHARSET.decode(ByteBuffer.wrap(entry.getAttributeValueBytes(USER_PASSWORD_ATTRIBUTE)));
             boolean success = verifyPassword(password, ldapPassword);
             clearBuffer(ldapPassword);
-            UserType userType = determineUserType(username);
+            UserType userType = entry.hasAttribute(USER_PASSWORD_RESET_ATTRIBUTE) && entry.getAttributeValueAsBoolean(USER_PASSWORD_RESET_ATTRIBUTE) ?
+                    UserType.OLD_PASSWORD : determineUserType(username);
             return new UserInfo(username, userType, success);
         }
     }
 
     private UserInfo authenticateRequest(RestRequest request, String username) {
         SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BEARER);
-        UserType userType = UserType.BADUSER;
+        UserType userType = UserType.BAD_USER;
         boolean success = false;
         if (searchResult != null && searchResult.getEntryCount() != 0) {
             SearchResultEntry entry = searchResult.getSearchEntries().get(0);
-            userType = determineUserType(username);
+            userType = entry.hasAttribute(USER_PASSWORD_RESET_ATTRIBUTE) && entry.getAttributeValueAsBoolean(USER_PASSWORD_RESET_ATTRIBUTE) ?
+                    UserType.OLD_PASSWORD : determineUserType(username);
             String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) != null ?
                     entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) :
                     EMPTY_PERMISSIONS;
@@ -445,8 +463,10 @@ class Bouncer {
                 byte[] salt = new byte[SHA1_LENGTH];
                 random.nextBytes(salt);
                 try {
-                    success = modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("password").getBytes())),
-                            USER_PASSWORD_ATTRIBUTE, hashPassword(ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("newPassword").getBytes())), salt, "SHA-1"));
+                    success = modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, USER_PASSWORD_ATTRIBUTE,
+                            "{SSHA}" + mergeHashedPasswordAndSalt(salt, hashPassword(ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("newPassword").getBytes())), salt, "SHA-1")));
+                    success = success && modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, USER_PASSWORD_RESET_ATTRIBUTE,
+                            "0");
                 } catch (NoSuchAlgorithmException e) {
                     logger.debug(e);
                 }
