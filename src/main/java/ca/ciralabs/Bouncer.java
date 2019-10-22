@@ -465,8 +465,11 @@ class Bouncer {
                 try {
                     success = modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, USER_PASSWORD_ATTRIBUTE,
                             "{SSHA}" + mergeHashedPasswordAndSalt(salt, hashPassword(ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("newPassword").getBytes())), salt, "SHA-1")));
-                    success = success && modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, USER_PASSWORD_RESET_ATTRIBUTE,
-                            "0");
+                    if(success && queryLdap(userInfoJWT.getUsername(), LDAP_BASE_DN, USER_PASSWORD_RESET_ATTRIBUTE)
+                            .getSearchEntries().get(0).hasAttribute(USER_PASSWORD_RESET_ATTRIBUTE)){
+                        success = modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, USER_PASSWORD_RESET_ATTRIBUTE,
+                                "0");
+                    }
                 } catch (NoSuchAlgorithmException e) {
                     logger.debug(e);
                 }
