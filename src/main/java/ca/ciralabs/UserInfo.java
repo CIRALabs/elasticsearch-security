@@ -2,12 +2,42 @@ package ca.ciralabs;
 
 class UserInfo {
     enum UserType {
-        MASTER(7),
-        DEVELOPER(6),
-        POWER_USER(5),
-        USER(4),
-        OLD_PASSWORD(1),
-        BAD_USER(0);
+        MASTER(7){
+            @Override
+            public String toString() {
+                return "Master";
+            }
+        },
+        DEVELOPER(6){
+            @Override
+            public String toString() {
+                return "Developer";
+            }
+        },
+        POWER_USER(5){
+            @Override
+            public String toString() {
+                return "Power User";
+            }
+        },
+        USER(4){
+            @Override
+            public String toString() {
+                return "User";
+            }
+        },
+        OLD_PASSWORD(1){
+            @Override
+            public String toString() {
+                return "Old Password";
+            }
+        },
+        BAD_USER(0){
+            @Override
+            public String toString() {
+                return "Bad User";
+            }
+        };
 
         private final int userLevel;
 

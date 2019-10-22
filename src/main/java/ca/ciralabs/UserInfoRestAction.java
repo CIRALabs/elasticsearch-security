@@ -32,7 +32,7 @@ public class UserInfoRestAction extends BaseRestHandler {
                 XContentBuilder builder = channel.newBuilder();
                 builder.startObject();
                 builder.field("success", 1);
-                builder.field("user_type", userInfo.getUserType().name());
+                builder.field("user_type", userInfo.getUserType().toString());
                 builder.field("user_name", userInfo.getUsername());
                 builder.endObject();
                 channel.sendResponse(new BytesRestResponse(RestStatus.OK, builder));
