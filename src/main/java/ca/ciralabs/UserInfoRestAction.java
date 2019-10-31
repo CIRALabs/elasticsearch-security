@@ -2,7 +2,6 @@ package ca.ciralabs;
 
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.inject.Inject;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.rest.*;
 
@@ -14,8 +13,7 @@ public class UserInfoRestAction extends BaseRestHandler {
     static final String USER_INFO_PATH = "user_info";
 
     @Inject
-    UserInfoRestAction(Settings settings, RestController controller) {
-        super(settings);
+    UserInfoRestAction(RestController controller) {
         controller.registerHandler(Method.GET, USER_INFO_PATH, this);
     }
 
