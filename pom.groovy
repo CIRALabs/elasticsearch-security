@@ -6,8 +6,8 @@ project {
   description 'Provides authentication support for Elasticsearch'
   properties {
     'project.build.sourceEncoding' 'UTF-8'
-    'maven.compiler.source' '1.8'
-    'maven.compiler.target' '1.8'
+    'maven.compiler.source' '11'
+    'maven.compiler.target' '11'
   }
   dependencies {
     dependency {

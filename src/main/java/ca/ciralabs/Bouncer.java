@@ -30,7 +30,6 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static ca.ciralabs.PluginSettings.*;
 import static ca.ciralabs.UserInfoRestAction.USER_INFO_PATH;
@@ -64,12 +63,9 @@ class Bouncer {
     /**
      * These are POST endpoints which are "safe" (read-only, mostly) for regular users.
      */
-    private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
-            "/_search/scroll", "/_search/scroll/_all", "/.kibana",
-            "_field_caps", "/_xpack/sql", "/_sql", "/change_password"
-    ).collect(toList());
-    private final List<String> MASTER_PATHS = Stream.of("/_nodes").collect(toList());
-    private final List<String> DEVELOPERS_PATHS = Stream.of("/_license", "/_settings", "/_cluster", "/_cat").collect(toList());
+    private final List<String> WHITELISTED_PATHS;
+    private final List<String> MASTER_PATHS = List.of("/_nodes");
+    private final List<String> DEVELOPERS_PATHS = List.of("/_license", "/_settings", "/_cluster", "/_cat");
     private final String LDAP_HOST;
     private final int LDAP_PORT;
     private final String LDAP_BASE_DN;
@@ -92,7 +88,7 @@ class Bouncer {
         ADMIN_USER = ADMIN_USER_SETTING.get(settings);
         ADMIN_PASSWORD = CharBuffer.wrap(ADMIN_PASSWORD_SETTING.get(settings));
         ADMIN_BASIC_AUTH = ADMIN_BASIC_AUTH_SETTING.get(settings);
-        WHITELISTED_PATHS.addAll(WHITELISTED_PATHS_SETTING.get(settings));
+        WHITELISTED_PATHS = WHITELISTED_PATHS_SETTING.get(settings);
         ISSUER = JWT_ISSUER_SETTING.get(settings);
         SIGNING_KEY = Keys.hmacShaKeyFor(JWT_SIGNING_KEY_SETTING.get(settings).getBytes(ASCII_CHARSET));
         LDAP_HOST = LDAP_HOST_SETTING.get(settings);
@@ -329,7 +325,7 @@ class Bouncer {
                 cnxn.bind(dn, password);
                 return true;
             } catch (LDAPException e) {
-                if (!(e instanceof LDAPBindException)){
+                if (!(e instanceof LDAPBindException)) {
                     logger.error("Something failed in the LDAP authentication", e);
                 }
 
