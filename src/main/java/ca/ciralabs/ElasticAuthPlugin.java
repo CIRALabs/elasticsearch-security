@@ -1,29 +1,24 @@
 package ca.ciralabs;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
-import org.elasticsearch.common.settings.ClusterSettings;
-import org.elasticsearch.common.settings.IndexScopedSettings;
-import org.elasticsearch.common.settings.Setting;
-import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.settings.SettingsFilter;
+import org.elasticsearch.common.settings.*;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.plugins.ActionPlugin;
 import org.elasticsearch.plugins.Plugin;
-import org.elasticsearch.rest.BytesRestResponse;
-import org.elasticsearch.rest.RestController;
-import org.elasticsearch.rest.RestHandler;
-import org.elasticsearch.rest.RestResponse;
-import org.elasticsearch.rest.RestStatus;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.elasticsearch.rest.*;
 
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 import static ca.ciralabs.TokenRestAction.TOKEN_PATH;
+import static ca.ciralabs.UserInfoRestAction.USER_INFO_PATH;
+import static ca.ciralabs.changePasswordRestAction.CHANGE_PASSWORD_PATH;
 
 public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
 
@@ -37,10 +32,9 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
             if (bouncer == null) {
                 bouncer = new Bouncer(client.settings());
             }
-            
-            
+
             // Access the Token API without restriction
-            if (request.path().endsWith(TOKEN_PATH)) {
+            if (request.path().endsWith(TOKEN_PATH) || request.path().endsWith(USER_INFO_PATH) || request.path().endsWith(CHANGE_PASSWORD_PATH)) {
                 originalHandler.handleRequest(request, channel, client);
                 return;
             }
@@ -61,7 +55,7 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
                         channel.sendResponse(response);
                     }
                     return;
-                }
+                    }
             }
             logger.info("Unauthorized: " + request.method() + ": " + request.rawPath());
             RestResponse response = new BytesRestResponse(RestStatus.UNAUTHORIZED, "Unauthorized access.");
@@ -78,6 +72,6 @@ public class ElasticAuthPlugin extends Plugin implements ActionPlugin {
     public List<RestHandler> getRestHandlers(Settings settings, RestController restController, ClusterSettings clusterSettings,
                                              IndexScopedSettings indexScopedSettings, SettingsFilter settingsFilter,
                                              IndexNameExpressionResolver indexNameExpressionResolver, Supplier<DiscoveryNodes> nodesInCluster) {
-        return Collections.singletonList(new TokenRestAction(settings, restController));
+        return new ArrayList<>(Arrays.asList(new TokenRestAction(settings, restController), new UserInfoRestAction(settings, restController), new changePasswordRestAction(settings, restController)));
     }
 }

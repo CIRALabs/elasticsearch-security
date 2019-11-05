@@ -26,6 +26,10 @@ class PluginSettings {
             Setting.simpleString("elastic-auth-plugin.ldap.elk-groups-users-cn", Setting.Property.NodeScope);
     static final Setting<String> LDAP_GROUP_BASE_DN_SETTING =
             Setting.simpleString("elastic-auth-plugin.ldap.group-base-dn", Setting.Property.NodeScope);
+    static final Setting<String> LDAP_MODIFICATION_DN_SETTING =
+            Setting.simpleString("elastic-auth-plugin.ldap.modification-dn", Setting.Property.NodeScope);
+    static final Setting<String> LDAP_MODIFICATION_DN_PASSWORD_SETTING =
+            Setting.simpleString("elastic-auth-plugin.ldap.modification-dn-password", Setting.Property.NodeScope);
     static final Setting<String> ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING =
             Setting.simpleString("elastic-auth-plugin.ldap.attribute.index-perm", Setting.Property.NodeScope);
     static final Setting<String> JWT_ISSUER_SETTING =
@@ -45,8 +49,9 @@ class PluginSettings {
         return Arrays.asList(
                 LDAP_HOST_SETTING, LDAP_PORT_SETTING, LDAP_BASE_DN_SETTING, LDAP_ELK_GROUPS_CN_SETTING,
                 LDAP_ELK_GROUPS_MASTERS_CN_SETTING, LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING, LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING,
-                LDAP_ELK_GROUPS_USERS_CN_SETTING, LDAP_GROUP_BASE_DN_SETTING, ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING,
-                JWT_ISSUER_SETTING, JWT_SIGNING_KEY_SETTING, ADMIN_USER_SETTING, ADMIN_PASSWORD_SETTING,
+                LDAP_ELK_GROUPS_USERS_CN_SETTING, LDAP_GROUP_BASE_DN_SETTING, LDAP_MODIFICATION_DN_SETTING,
+                LDAP_MODIFICATION_DN_PASSWORD_SETTING, ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING, JWT_ISSUER_SETTING,
+                JWT_SIGNING_KEY_SETTING, ADMIN_USER_SETTING, ADMIN_PASSWORD_SETTING,
                 ADMIN_BASIC_AUTH_SETTING, WHITELISTED_PATHS_SETTING
         );
     }

@@ -1,12 +1,7 @@
 package ca.ciralabs;
 
-import com.unboundid.ldap.sdk.Filter;
-import com.unboundid.ldap.sdk.LDAPConnection;
-import com.unboundid.ldap.sdk.LDAPException;
-import com.unboundid.ldap.sdk.SearchRequest;
-import com.unboundid.ldap.sdk.SearchResult;
-import com.unboundid.ldap.sdk.SearchResultEntry;
-import com.unboundid.ldap.sdk.SearchScope;
+import ca.ciralabs.UserInfo.UserType;
+import com.unboundid.ldap.sdk.*;
 import com.unboundid.util.ssl.SSLUtil;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
@@ -30,46 +25,20 @@ import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.AccessController;
-import java.security.KeyStore;
-import java.security.MessageDigest;
-import java.security.PrivilegedAction;
+import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static ca.ciralabs.PluginSettings.ADMIN_BASIC_AUTH_SETTING;
-import static ca.ciralabs.PluginSettings.ELASTIC_INDEX_PERM_ATTRIBUTE_SETTING;
-import static ca.ciralabs.PluginSettings.JWT_ISSUER_SETTING;
-import static ca.ciralabs.PluginSettings.JWT_SIGNING_KEY_SETTING;
-import static ca.ciralabs.PluginSettings.ADMIN_PASSWORD_SETTING;
-import static ca.ciralabs.PluginSettings.ADMIN_USER_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_BASE_DN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_MASTERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_ELK_GROUPS_USERS_CN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_GROUP_BASE_DN_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_HOST_SETTING;
-import static ca.ciralabs.PluginSettings.LDAP_PORT_SETTING;
-import static ca.ciralabs.PluginSettings.WHITELISTED_PATHS_SETTING;
+import static ca.ciralabs.PluginSettings.*;
+import static ca.ciralabs.UserInfoRestAction.USER_INFO_PATH;
+import static ca.ciralabs.changePasswordRestAction.CHANGE_PASSWORD_PATH;
 import static java.util.stream.Collectors.toList;
 import static org.elasticsearch.rest.RestRequest.Method;
 
 class Bouncer {
-
-    private static final int MASTER = 7;
-    private static final int DEVELOPER = 6;
-    private static final int POWER_USER = 5;
-    private static final int USER = 4;
 
     private static final String INDEX = "index";
     private static final String[] EMPTY_PERMISSIONS = new String[0];
@@ -79,6 +48,7 @@ class Bouncer {
     private static final Charset ASCII_CHARSET = StandardCharsets.US_ASCII;
     private static final String UNIQUE_MEMBER_ATTRIBUTE = "uniqueMember";
     private static final String USER_PASSWORD_ATTRIBUTE = "userPassword";
+    private static final String USER_PASSWORD_RESET_ATTRIBUTE = "shadowFlag";
     /**
      * {SSHA}... so start at index 6
      */
@@ -98,7 +68,7 @@ class Bouncer {
      */
     private final List<String> WHITELISTED_PATHS = Stream.of("/_search", "/_msearch", "/_bulk_get", "/_mget",
             "/_search/scroll", "/_search/scroll/_all", "/.kibana",
-            "_field_caps", "/_xpack/sql", "/_sql"
+            "_field_caps", "/_xpack/sql", "/_sql", "/change_password"
     ).collect(toList());
     private final List<String> MASTER_PATHS = Stream.of("/_nodes").collect(toList());
     private final List<String> DEVELOPERS_PATHS = Stream.of("/_license", "/_settings", "/_cluster", "/_cat").collect(toList());
@@ -107,10 +77,14 @@ class Bouncer {
     private final String LDAP_BASE_DN;
     private final String ELK_GROUPS_CN;
     private final String GROUP_BASE_DN;
+    private final String MODIFICATION_DN;
+    private final String MODIFICATION_DN_PASSWORD;
     private final String[] LDAP_ATTRIBUTES_BASIC;
     private final String[] LDAP_ATTRIBUTES_BEARER;
-    private final HashMap<String, Integer> GROUP_TO_USER_TYPE = new HashMap<>();
+    private final HashMap<String, UserType> GROUP_TO_USER_TYPE = new HashMap<>();
     private final SSLSocketFactory SSL_SOCKET_FACTORY;
+
+    private final SecureRandom random = new SecureRandom();
 
     private static class MalformedAuthHeaderException extends Throwable {
     }
@@ -128,12 +102,14 @@ class Bouncer {
         LDAP_BASE_DN = LDAP_BASE_DN_SETTING.get(settings);
         ELK_GROUPS_CN = LDAP_ELK_GROUPS_CN_SETTING.get(settings);
         GROUP_BASE_DN = LDAP_GROUP_BASE_DN_SETTING.get(settings);
-        LDAP_ATTRIBUTES_BASIC = new String[]{USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE};
-        LDAP_ATTRIBUTES_BEARER = new String[]{ELASTIC_INDEX_PERM_ATTRIBUTE};
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), MASTER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), DEVELOPER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), POWER_USER);
-        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_USERS_CN_SETTING.get(settings), USER);
+        MODIFICATION_DN = LDAP_MODIFICATION_DN_SETTING.get(settings);
+        MODIFICATION_DN_PASSWORD = LDAP_MODIFICATION_DN_PASSWORD_SETTING.get(settings);
+        LDAP_ATTRIBUTES_BASIC = new String[]{USER_PASSWORD_ATTRIBUTE, ELASTIC_INDEX_PERM_ATTRIBUTE, USER_PASSWORD_RESET_ATTRIBUTE};
+        LDAP_ATTRIBUTES_BEARER = new String[]{ELASTIC_INDEX_PERM_ATTRIBUTE, USER_PASSWORD_RESET_ATTRIBUTE};
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_MASTERS_CN_SETTING.get(settings), UserType.MASTER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_DEVELOPERS_CN_SETTING.get(settings), UserType.DEVELOPER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_POWER_USERS_CN_SETTING.get(settings), UserType.POWER_USER);
+        GROUP_TO_USER_TYPE.put(LDAP_ELK_GROUPS_USERS_CN_SETTING.get(settings), UserType.USER);
         SSL_SOCKET_FACTORY = createSslSocketFactory();
     }
 
@@ -182,52 +158,54 @@ class Bouncer {
         if (endOfUsernameIndex == -1) {
             return FAILURE_TOKEN;
         }
-        String username = credentials.subSequence(0, endOfUsernameIndex).toString();
         CharBuffer password = credentials.subSequence(endOfUsernameIndex + 1, credentials.length());
         if (isAdminUser) {
             // Admin is controlled by yml, so read the password from config, not from LDAP
-            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, true, null, MASTER) : FAILURE_TOKEN;
-        }
-        SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BASIC);
-        if (searchResult == null || searchResult.getEntryCount() == 0) {
-            return FAILURE_TOKEN;
+            return password.equals(ADMIN_PASSWORD) ? new Token(null, true, true, null, UserType.MASTER.getUserLevel()) : FAILURE_TOKEN;
         } else {
-            SearchResultEntry entry = searchResult.getSearchEntries().get(0);
-            CharBuffer ldapPassword = ASCII_CHARSET.decode(ByteBuffer.wrap(entry.getAttributeValueBytes(USER_PASSWORD_ATTRIBUTE)));
-            boolean success = verifyPassword(password, ldapPassword);
+            UserInfo userInfo = authenticateRequest(credentials.subSequence(0, endOfUsernameIndex).toString(), password);
             clearBuffer(credentials);
-            clearBuffer(ldapPassword);
-            int userType = determineUserType(username);
-            return success ? generateJwt(username, userType) : FAILURE_TOKEN;
+            return userInfo.isSuccessful() ? generateJwt(userInfo.getUsername(), userInfo.getUserLevel()) : FAILURE_TOKEN;
         }
     }
 
     private boolean verifyPassword(CharBuffer password, CharBuffer ldapPassword) {
+        byte[] ldapStripAlg = ASCII_CHARSET.encode(ldapPassword.subSequence(HASHED_INDEX_START, ldapPassword.length())).array();
+        byte[] decoded = Base64.getMimeDecoder().decode(ldapStripAlg);
+        byte[] sha1PasswordFromLdap = Arrays.copyOfRange(decoded, 0, SHA1_LENGTH);
+        byte[] salt = Arrays.copyOfRange(decoded, SHA1_LENGTH, decoded.length);
+        byte[] sha1PasswordFromLogin = new byte[0];
+
         try {
-            byte[] ldapStripAlg = ASCII_CHARSET.encode(ldapPassword.subSequence(HASHED_INDEX_START, ldapPassword.length())).array();
-            byte[] decoded = Base64.getMimeDecoder().decode(ldapStripAlg);
-            byte[] sha1PasswordFromLdap = Arrays.copyOfRange(decoded, 0, SHA1_LENGTH);
-            byte[] salt = Arrays.copyOfRange(decoded, SHA1_LENGTH, decoded.length);
-
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
-            md.update(ASCII_CHARSET.encode(password));
-            md.update(salt);
-            byte[] sha1PasswordFromLogin = md.digest();
-
-            boolean success = Arrays.equals(sha1PasswordFromLdap, sha1PasswordFromLogin);
-
-            // Clear arrays of sensitive info
-            Arrays.fill(ldapStripAlg, (byte) 0);
-            Arrays.fill(decoded, (byte) 0);
-            Arrays.fill(sha1PasswordFromLdap, (byte) 0);
-            Arrays.fill(salt, (byte) 0);
-            Arrays.fill(sha1PasswordFromLogin, (byte) 0);
-
-            return success;
-        } catch (Exception e) {
-            logger.error(e);
+            sha1PasswordFromLogin = hashPassword(password, salt, "SHA-1");
+        } catch (NoSuchAlgorithmException e) {
+            logger.debug(e);
         }
-        return false;
+
+        boolean success = Arrays.equals(sha1PasswordFromLdap, sha1PasswordFromLogin);
+
+        // Clear arrays of sensitive info
+        Arrays.fill(ldapStripAlg, (byte) 0);
+        Arrays.fill(decoded, (byte) 0);
+        Arrays.fill(sha1PasswordFromLdap, (byte) 0);
+        Arrays.fill(salt, (byte) 0);
+        Arrays.fill(sha1PasswordFromLogin, (byte) 0);
+
+        return success;
+    }
+
+    private String mergeHashedPasswordAndSalt(byte[] salt, byte[] hashedPassword) {
+        byte[] combination = new byte[SHA1_LENGTH + salt.length];
+        System.arraycopy(hashedPassword, 0, combination, 0, SHA1_LENGTH);
+        System.arraycopy(salt, 0, combination, SHA1_LENGTH, salt.length);
+        return Base64.getMimeEncoder().encodeToString(combination);
+    }
+
+    private byte[] hashPassword(CharBuffer password, byte[] salt, String algorithm) throws NoSuchAlgorithmException {
+        MessageDigest md = MessageDigest.getInstance(algorithm);
+        md.update(ASCII_CHARSET.encode(password));
+        md.update(salt);
+        return md.digest();
     }
 
     /**
@@ -282,35 +260,8 @@ class Bouncer {
     }
 
     Token handleBearerAuth(RestRequest request) {
-        boolean success = false;
-        String username = null;
-        int userType = 0;
-        try {
-            CharBuffer credentials = extractCredentialsFromRequest(request);
-            SecurityManager sm = System.getSecurityManager();
-            if (sm != null) {
-                sm.checkPermission(new SpecialPermission());
-            }
-            Jws<Claims> jwt = AccessController.doPrivileged((PrivilegedAction<Jws<Claims>>) () ->
-                    Jwts.parser().setSigningKey(SIGNING_KEY).parseClaimsJws(credentials.toString())
-            );
-            username = (String) jwt.getBody().get(USER_CLAIM);
-            if (username != null) {
-                SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BEARER);
-                if (searchResult != null && searchResult.getEntryCount() != 0) {
-                    SearchResultEntry entry = searchResult.getSearchEntries().get(0);
-                    userType = determineUserType(username);
-                    String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) != null ?
-                            entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) :
-                            EMPTY_PERMISSIONS;
-                    String index = extractIndexOrNull(request);
-                    success = handlePermission(userType, permissions, index, request);
-                }
-            }
-        } catch (MalformedAuthHeaderException | MalformedJwtException e) {
-            logger.debug(e);
-        }
-        return success ? generateJwt(username, userType) : FORBIDDEN_TOKEN;
+        UserInfo userInfo = getUserInfoFromJWT(request);
+        return userInfo.isSuccessful() ? generateJwt(userInfo.getUsername(), userInfo.getUserLevel()) : FORBIDDEN_TOKEN;
     }
 
     private String extractIndexOrNull(RestRequest request) {
@@ -343,24 +294,26 @@ class Bouncer {
         return false;
     }
 
-    private boolean handlePermission(int userType, String[] permissions, String index, RestRequest request) {
+    private boolean handlePermission(UserType userType, String[] permissions, String index, RestRequest request) {
         // Being a master overrides any set permissions
-        if (index != null && userType != MASTER && permissions.length > 0) {
+        if (index != null && userType != UserType.MASTER && permissions.length > 0) {
             // Special permissions are set, check them first
             for (String specialPermission : permissions) {
                 String[] indexToPerm = specialPermission.split(":");
                 if (index.startsWith(indexToPerm[0])) {
                     // This rule matches the request, so is it allowed?
-                    return evaluatePermissionOctal(request, Integer.parseInt(indexToPerm[1]));
+                    return evaluatePermissionUserType(request, UserType.fromInteger(Integer.parseInt(indexToPerm[1])));
                 }
             }
             // If no special permission matches, fall through to user type permissions
         }
-        return evaluatePermissionOctal(request, userType);
+        return evaluatePermissionUserType(request, userType);
     }
 
-    private boolean evaluatePermissionOctal(RestRequest request, int octal) {
-        switch (octal) {
+    private boolean evaluatePermissionUserType(RestRequest request, UserType userType) {
+        switch (userType) {
+            case OLD_PASSWORD:
+                return request.method() == Method.GET && request.path().contains(USER_INFO_PATH) || request.method() == Method.POST && request.path().contains(CHANGE_PASSWORD_PATH);
             case USER:
                 return request.method() == Method.GET || request.method() == Method.HEAD || listContains(request.path(), WHITELISTED_PATHS);
             case POWER_USER:
@@ -409,8 +362,25 @@ class Bouncer {
         });
     }
 
+    private boolean modifyLdap(String dn, String attribute, String attributeValue) {
+        SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            sm.checkPermission(new SpecialPermission());
+        }
+        return AccessController.doPrivileged((PrivilegedAction<Boolean>) () -> {
+            try (LDAPConnection cnxn = new LDAPConnection(SSL_SOCKET_FACTORY)) {
+                cnxn.connect(LDAP_HOST, LDAP_PORT);
+                cnxn.bind(MODIFICATION_DN, MODIFICATION_DN_PASSWORD);
+                return cnxn.modify(dn, new Modification(ModificationType.REPLACE, attribute, attributeValue)).getResultCode().equals(ResultCode.SUCCESS);
+            } catch (LDAPException e) {
+                logger.error("Something failed in the LDAP modify", e);
+            }
+            return false;
+        });
+    }
+
     // TODO Use memberOf attribute in the future to simplify, reduce to one LDAP call
-    private int determineUserType(String username) {
+    private UserType determineUserType(String username) {
         SearchResult sr = queryLdap(ELK_GROUPS_CN, GROUP_BASE_DN, UNIQUE_MEMBER_ATTRIBUTE);
         if (sr != null && sr.getEntryCount() != 0) {
             for (SearchResultEntry entry : sr.getSearchEntries()) {
@@ -421,15 +391,92 @@ class Bouncer {
                     if (username.equals(un)) {
                         String groupname = entry.getDN();
                         groupname = groupname.substring(groupname.indexOf('=') + 1, groupname.indexOf(','));
-                        Integer result = GROUP_TO_USER_TYPE.get(groupname);
-                        if (result != null) {
-                            return result;
+                        UserType userType = GROUP_TO_USER_TYPE.get(groupname);
+                        if (userType != null) {
+                            return userType;
                         }
                     }
                 }
             }
         }
-        return 0;
+        return UserType.BAD_USER;
     }
 
+    private UserInfo authenticateRequest(String username, CharBuffer password) {
+        SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BASIC);
+        if (searchResult == null || searchResult.getEntryCount() == 0) {
+            return new UserInfo();
+        } else {
+            SearchResultEntry entry = searchResult.getSearchEntries().get(0);
+            CharBuffer ldapPassword = ASCII_CHARSET.decode(ByteBuffer.wrap(entry.getAttributeValueBytes(USER_PASSWORD_ATTRIBUTE)));
+            boolean success = verifyPassword(password, ldapPassword);
+            clearBuffer(ldapPassword);
+            UserType userType = entry.hasAttribute(USER_PASSWORD_RESET_ATTRIBUTE) && entry.getAttributeValueAsBoolean(USER_PASSWORD_RESET_ATTRIBUTE) ?
+                    UserType.OLD_PASSWORD : determineUserType(username);
+            return new UserInfo(username, userType, success);
+        }
+    }
+
+    private UserInfo authenticateRequest(RestRequest request, String username) {
+        SearchResult searchResult = queryLdap(username, LDAP_BASE_DN, LDAP_ATTRIBUTES_BEARER);
+        UserType userType = UserType.BAD_USER;
+        boolean success = false;
+        if (searchResult != null && searchResult.getEntryCount() != 0) {
+            SearchResultEntry entry = searchResult.getSearchEntries().get(0);
+            userType = entry.hasAttribute(USER_PASSWORD_RESET_ATTRIBUTE) && entry.getAttributeValueAsBoolean(USER_PASSWORD_RESET_ATTRIBUTE) ?
+                    UserType.OLD_PASSWORD : determineUserType(username);
+            String[] permissions = entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) != null ?
+                    entry.getAttributeValues(ELASTIC_INDEX_PERM_ATTRIBUTE) :
+                    EMPTY_PERMISSIONS;
+            String index = extractIndexOrNull(request);
+            success = handlePermission(userType, permissions, index, request);
+        }
+        return new UserInfo(username, userType, success);
+    }
+
+    UserInfo getUserInfoFromJWT(RestRequest request) {
+        try {
+            CharBuffer credentials = extractCredentialsFromRequest(request);
+            SecurityManager sm = System.getSecurityManager();
+            if (sm != null) {
+                sm.checkPermission(new SpecialPermission());
+            }
+            Jws<Claims> jwt = AccessController.doPrivileged((PrivilegedAction<Jws<Claims>>) () ->
+                    Jwts.parser().setSigningKey(SIGNING_KEY).parseClaimsJws(credentials.toString())
+            );
+            return authenticateRequest(request, (String) jwt.getBody().get(USER_CLAIM));
+        } catch (MalformedAuthHeaderException | MalformedJwtException e) {
+            logger.debug(e);
+            return new UserInfo();
+        }
+    }
+
+    boolean changePassword(RestRequest request) {
+        Map<String, String> requestBody = Arrays.stream(request.content().utf8ToString().replaceAll("[{}\"]", "").split(","))
+                .map(s -> s.split(":"))
+                .collect(Collectors.toMap(a -> a[0], a -> a[1]));
+        if (requestBody.containsKey("password") && requestBody.containsKey("newPassword")) {
+            UserInfo userInfoJWT = getUserInfoFromJWT(request);
+            UserInfo userInfoPassword = authenticateRequest(userInfoJWT.getUsername(), ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("password").getBytes())));
+            if (userInfoJWT.isSuccessful() && userInfoPassword.isSuccessful()) {
+                boolean success = false;
+                byte[] salt = new byte[SHA1_LENGTH];
+                random.nextBytes(salt);
+                try {
+                    success = modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, USER_PASSWORD_ATTRIBUTE,
+                            "{SSHA}" + mergeHashedPasswordAndSalt(salt, hashPassword(ASCII_CHARSET.decode(ByteBuffer.wrap(requestBody.get("newPassword").getBytes())), salt, "SHA-1")));
+                    if(success && queryLdap(userInfoJWT.getUsername(), LDAP_BASE_DN, USER_PASSWORD_RESET_ATTRIBUTE)
+                            .getSearchEntries().get(0).hasAttribute(USER_PASSWORD_RESET_ATTRIBUTE)){
+                        success = modifyLdap("uid=" + userInfoJWT.getUsername() + "," + LDAP_BASE_DN, USER_PASSWORD_RESET_ATTRIBUTE,
+                                "0");
+                    }
+                } catch (NoSuchAlgorithmException e) {
+                    logger.debug(e);
+                }
+                Arrays.fill(salt, (byte) 0);
+                return success;
+            }
+        }
+        return false;
+    }
 }
