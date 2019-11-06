@@ -2,7 +2,7 @@ project {
   modelVersion '4.0.0'
   groupId 'ca.ciralabs'
   artifactId 'elastic-auth-plugin'
-  version '2019.10.22'
+  version '2019.10.30'
   description 'Provides authentication support for Elasticsearch'
   properties {
     'project.build.sourceEncoding' 'UTF-8'
