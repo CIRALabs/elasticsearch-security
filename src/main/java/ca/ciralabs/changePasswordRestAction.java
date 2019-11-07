@@ -2,7 +2,6 @@ package ca.ciralabs;
 
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.inject.Inject;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.rest.*;
 
@@ -14,8 +13,7 @@ public class changePasswordRestAction extends BaseRestHandler {
     static final String CHANGE_PASSWORD_PATH = "change_password";
 
     @Inject
-    changePasswordRestAction(Settings settings, RestController controller) {
-        super(settings);
+    changePasswordRestAction(RestController controller) {
         controller.registerHandler(Method.POST, CHANGE_PASSWORD_PATH, this);
     }
 

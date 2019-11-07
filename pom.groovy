@@ -2,12 +2,12 @@ project {
   modelVersion '4.0.0'
   groupId 'ca.ciralabs'
   artifactId 'elastic-auth-plugin'
-  version '2019.10.30'
+  version '2019.10.31'
   description 'Provides authentication support for Elasticsearch'
   properties {
     'project.build.sourceEncoding' 'UTF-8'
-    'maven.compiler.source' '1.8'
-    'maven.compiler.target' '1.8'
+    'maven.compiler.source' '11'
+    'maven.compiler.target' '11'
   }
   dependencies {
     dependency {
@@ -19,7 +19,7 @@ project {
     dependency {
       groupId 'org.elasticsearch'
       artifactId 'elasticsearch'
-      version '7.3.0'
+      version '7.4.0'
       scope 'provided'
     }
     dependency {
